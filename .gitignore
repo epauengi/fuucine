@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+dist-ssr/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# TypeScript / Vite generated files
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+tailwind.config.d.ts
+
+# Tooling / local agent files
+.agents/
+.codex/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary screenshots and local artifacts
+*.tmp
+*.temp
+*.png
+!docs/*.png
+
+PRODUCT.md
+DESIGN.md

@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/nguonc-api/:path*",
+      "destination": "https://phim.nguonc.com/api/:path*"
+    },
+    {
+      "source": "/imdb-api/:path*",
+      "destination": "https://api.imdbapi.dev/:path*"
+    },
+    {
+      "source": "/imdb-lookup-api/:path*",
+      "destination": "https://imdb.iamidiotareyoutoo.com/:path*"
+    }
+  ]
+}
