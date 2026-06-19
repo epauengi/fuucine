@@ -3,8 +3,7 @@
 FuuCine is a cinematic movie browsing interface built as a frontend demo project. It focuses on premium UI craft, responsive interaction design, third-party API integration, and a polished streaming-style user experience.
 
 ## Live Demo
-
-Vercel deployment URL will be added here after publishing.
+https://fuucine.vercel.app/
 
 ## Highlights
 
