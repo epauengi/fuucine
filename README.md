@@ -1,60 +1,66 @@
+<div align="center">
+
 # FuuCine
 
-FuuCine is a cinematic movie browsing interface built as a frontend demo project. It focuses on premium UI craft, responsive interaction design, third-party API integration, and a polished streaming-style user experience.
+*A cinematic, responsive frontend for discovering films.*
 
-## Live Demo
-https://fuucine.vercel.app/
+**[Explore the live demo](https://fuucine.vercel.app/)**
 
-## Highlights
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react&logoColor=white)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF.svg?logo=vite&logoColor=white)](https://vite.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4.svg?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![SWR](https://img.shields.io/badge/SWR-2-000000.svg)](https://swr.vercel.app/)
+[![Framer Motion](https://img.shields.io/badge/Framer_Motion-11-E84D8A.svg)](https://motion.dev/)
+[![Lucide](https://img.shields.io/badge/Lucide_React-0-F56040.svg)](https://lucide.dev/)
 
-- Cinematic hero with rotating featured films
-- Interactive poster deck and 3D neon card hover
-- Movie browsing with filters for type, genre, year, country, and IMDb sorting
-- Search overlay with active preview and keyboard-friendly navigation
-- Movie detail modal with episode selection
-- Embedded player modal with current episode context
-- Dark and light theme support
-- Responsive layout for desktop, tablet, and mobile
-- IMDb score integration
-- First-visit disclaimer for third-party data/content transparency
+</div>
 
-## Tech Stack
+## What it demonstrates
 
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- SWR
-- Framer Motion
-- Lucide React
+- API-driven film discovery with search, filters, pagination, and IMDb-based sorting
+- Responsive browsing across desktop, tablet, and mobile
+- Detail views, Vietsub / Thuyết minh episode selection, and embedded playback
+- Accessible dialogs, keyboard navigation, visible focus, and reduced-motion support
+- Theme-aware visual system, purposeful motion, loading states, and retry recovery
 
-## Data Sources & Disclaimer
+## Project structure
 
-FuuCine is a demo UI project. Film data, posters, metadata, playback links, and embedded player sources are provided by third-party APIs and services such as NguonC and IMDb-related endpoints.
+```text
+├── index.html              # Entry HTML and pre-paint theme bootstrap
+├── src/
+│   ├── App.tsx             # Views, data boundaries, and modal flows
+│   ├── main.tsx            # React root, SWR, and motion configuration
+│   ├── index.css           # Tailwind and Projection Booth visual system
+│   ├── components/ui/      # Theme control
+│   └── lib/utils.ts        # Shared cn() utility
+├── vite.config.ts          # Development API proxies
+└── vercel.json             # Production API rewrites
+```
 
-This project does not host, own, moderate, or control any movie content, advertisements, popups, embedded sources, or third-party media. The repository is intended to demonstrate frontend engineering, UI/UX design, API-driven rendering, state handling, and responsive interaction design.
+## API proxies
 
-## Project Scope
+The frontend accesses third-party data through these proxied paths:
 
-This repository is focused on:
+| Frontend path | Upstream | Purpose |
+| --- | --- | --- |
+| `/nguonc-api/*` | `phim.nguonc.com` | Film catalog, search, episodes, playback URLs |
+| `/imdb-api/*` | `api.imdbapi.dev` | IMDb rating lookup |
+| `/imdb-lookup-api/*` | `imdb.iamidiotareyoutoo.com` | IMDb ID lookup fallback |
 
-- Frontend architecture
-- API-driven UI rendering
-- Search, filtering, and pagination UX
-- Motion design and modal transitions
-- Responsive layout implementation
-- Visual polish for a cinematic product interface
-
-It is not intended to be a production streaming service.
+Vite proxies these routes in development; Vercel rewrites them in production. Other hosts require equivalent reverse-proxy rules.
 
 ## Deployment
 
-This project is intended to be deployed on Vercel. The repository includes `vercel.json` for API rewrites/proxy configuration used by the frontend.
+The live demo is deployed on Vercel. [`vercel.json`](vercel.json) provides the third-party API rewrites required by the frontend.
 
-## Repository Notes
+## Content notice
 
-Generated build output, dependencies, local environment files, and local tooling artifacts are intentionally excluded from Git.
+> [!IMPORTANT]
+> FuuCine is a frontend demonstration project. Film metadata, artwork, playback links, and embedded media originate from third-party services, including NguonC and IMDb-related endpoints. This repository neither hosts nor controls that content, its availability, advertisements, or embedded media behavior.
 
-## Author
+It demonstrates frontend engineering, UI/UX design, and responsive interaction patterns — not a production streaming service.
 
-Created by [github.com/epauengi](https://github.com/epauengi).
+---
+
+Created by [@epauengi](https://github.com/epauengi)
