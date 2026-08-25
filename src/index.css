@@ -12,6 +12,7 @@
   html {
     background: #030305;
     scroll-behavior: smooth;
+    scroll-padding-top: 6rem;
     text-size-adjust: 100%;
     -webkit-text-size-adjust: 100%;
   }
@@ -49,12 +50,6 @@
   ::selection {
     background-color: rgba(0, 240, 255, 0.3);
     color: #00f0ff;
-  }
-
-  ::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-    background: transparent;
   }
 }
 
@@ -96,36 +91,19 @@
 }
 
 .cinema-shell {
-  --cursor-x: 50%;
-  --cursor-y: 18%;
   isolation: isolate;
 }
 
-.cinema-shell::before,
 .cinema-shell::after {
   content: "";
   position: fixed;
   inset: 0;
-  pointer-events: none;
   z-index: 18;
-}
-
-.cinema-shell::before {
-  background:
-    radial-gradient(
-      820px circle at var(--cursor-x) var(--cursor-y),
-      rgba(0, 240, 255, 0.17),
-      rgba(255, 0, 85, 0.075) 34%,
-      transparent 68%
-    );
-  mix-blend-mode: screen;
-}
-
-.cinema-shell::after {
-  opacity: 0.18;
+  pointer-events: none;
+  opacity: 0.1;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.34'/%3E%3C/svg%3E");
   background-size: 80px 80px, 120px 120px, 140px 140px;
   mask-image: linear-gradient(to bottom, transparent, black 14%, black 88%, transparent);
@@ -158,11 +136,11 @@
 .hero-orbit {
   border-radius: 999px;
   background:
-    conic-gradient(from 120deg, transparent 0 42%, rgba(0, 240, 255, 0.45) 48%, transparent 54% 70%, rgba(255, 0, 85, 0.28) 76%, transparent 84%),
-    radial-gradient(circle, transparent 58%, rgba(0, 240, 255, 0.1) 59%, transparent 60%);
+    conic-gradient(from 120deg, transparent 0 42%, rgba(0, 240, 255, 0.28) 48%, transparent 54% 70%, rgba(122, 247, 255, 0.16) 76%, transparent 84%),
+    radial-gradient(circle, transparent 58%, rgba(0, 240, 255, 0.08) 59%, transparent 60%);
   filter: blur(0.2px);
-  opacity: 0.76;
-  animation: heroOrbitSpin 18s linear infinite;
+  opacity: 0.34;
+  animation: heroOrbitSpin 24s linear infinite;
   mask-image: radial-gradient(circle, transparent 0 53%, black 54% 60%, transparent 61%);
 }
 
@@ -215,8 +193,7 @@
   height: 100%;
   width: 100%;
   transform-origin: left center;
-  background:
-    linear-gradient(90deg, rgba(0, 240, 255, 0.3), rgba(122, 247, 255, 0.98), rgba(255, 0, 85, 0.5));
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.3), rgba(122, 247, 255, 0.98), rgba(0, 240, 255, 0.45));
   box-shadow: 0 0 20px rgba(0, 240, 255, 0.52);
   animation: heroAutoplayFill 15s linear forwards;
 }
@@ -266,15 +243,15 @@
   background:
     radial-gradient(
       190px circle at var(--card-x) var(--card-y),
-      rgba(0, 240, 255, 0.92),
-      rgba(255, 0, 85, 0.34) 46%,
-      rgba(255, 255, 255, 0.1) 62%,
+      rgba(0, 240, 255, 0.68),
+      rgba(122, 247, 255, 0.16) 46%,
+      rgba(255, 255, 255, 0.08) 62%,
       transparent 78%
     );
 }
 
 .movie-card-spotlight:hover::before,
-.movie-card-spotlight:focus-visible::before,
+.movie-card-spotlight:focus-within::before,
 .movie-card-active::before {
   opacity: 1;
 }
@@ -294,7 +271,7 @@
 }
 
 .movie-card-spotlight:hover .card-play-button,
-.movie-card-spotlight:focus-visible .card-play-button {
+.movie-card-spotlight:focus-within .card-play-button {
   background: #00f0ff;
   box-shadow: 0 0 22px rgba(0, 240, 255, 0.34);
 }
@@ -377,8 +354,8 @@ html[data-theme='light'] .ambient-layer {
 }
 
 html[data-theme='light'] .ambient-layer img {
-  opacity: 0.26 !important;
-  filter: blur(34px) saturate(0.9) contrast(0.92);
+  opacity: 0.2 !important;
+  filter: blur(34px) saturate(0.86) contrast(0.94);
 }
 
 html[data-theme='light'] .ambient-dim {
@@ -389,16 +366,6 @@ html[data-theme='light'] .ambient-dim {
 html[data-theme='light'] .theme-readable-mask {
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.28), rgba(8, 15, 20, 0.22) 48%, #eef4f7 100%);
-}
-
-html[data-theme='light'] .cinema-shell::before {
-  background:
-    radial-gradient(
-      820px circle at var(--cursor-x) var(--cursor-y),
-      rgba(0, 180, 205, 0.18),
-      rgba(255, 255, 255, 0.12) 34%,
-      transparent 68%
-    );
 }
 
 html[data-theme='light'] .glass-panel {
@@ -432,7 +399,6 @@ html[data-theme='light'] .filter-console::after {
 html[data-theme='light'] .disclaimer-card {
   background:
     radial-gradient(520px circle at 0% 0%, rgba(0, 190, 210, 0.13), transparent 58%),
-    radial-gradient(480px circle at 100% 8%, rgba(255, 0, 85, 0.06), transparent 54%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(239, 247, 250, 0.92));
   border-color: rgba(15, 23, 42, 0.12);
   color: #0b1016;
@@ -478,7 +444,6 @@ html[data-theme='light'] .filter-chip {
 html[data-theme='light'] .browse-results-surface::before {
   background:
     radial-gradient(560px circle at 13% 0%, rgba(0, 190, 210, 0.12), transparent 55%),
-    radial-gradient(620px circle at 86% 8%, rgba(255, 0, 85, 0.06), transparent 52%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.72), transparent 42%);
 }
 
@@ -580,78 +545,19 @@ html[data-theme='light'] .filter-segment-active {
 }
 
 html[data-theme='light'] .filter-console .filter-select {
-  background-color: #111827;
-  color: #ffffff !important;
+  background-color: #ffffff;
+  color: #0b1016 !important;
   border-color: rgba(15, 23, 42, 0.16);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  color-scheme: dark;
-}
-
-html[data-theme='light'] .filter-console .filter-select-open {
-  border-color: rgba(0, 190, 210, 0.72);
-  box-shadow:
-    0 0 0 2px rgba(0, 190, 210, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color-scheme: light;
 }
 
 html[data-theme='light'] .filter-console .filter-select:hover {
   border-color: rgba(0, 142, 160, 0.42);
 }
 
-.filter-select-root {
-  z-index: 30;
-}
-
-.filter-select-root:focus-within {
-  z-index: 80;
-}
-
-.filter-select-menu {
-  transform-origin: top center;
-}
-
-.filter-select-options {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 240, 255, 0.45) rgba(255, 255, 255, 0.06);
-}
-
-.filter-select-options::-webkit-scrollbar {
-  display: block;
-  width: 8px;
-  height: 8px;
-}
-
-.filter-select-options::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-}
-
-.filter-select-options::-webkit-scrollbar-thumb {
-  background: rgba(0, 240, 255, 0.45);
-  border-radius: 999px;
-}
-
-html[data-theme='light'] .filter-select-menu {
-  background:
-    linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(11, 15, 25, 0.98));
-  border-color: rgba(0, 190, 210, 0.34);
-  box-shadow:
-    0 22px 46px rgba(15, 23, 42, 0.28),
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-}
-
-html[data-theme='light'] .filter-select-option {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-html[data-theme='light'] .filter-select-option:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-}
-
-html[data-theme='light'] .filter-select-option-active {
-  background: rgba(0, 190, 210, 0.2) !important;
-  color: #ffffff !important;
+html[data-theme='light'] .filter-console .filter-select:focus {
+  border-color: #008ea0;
+  box-shadow: 0 0 0 2px rgba(0, 142, 160, 0.22);
 }
 
 html[data-theme='light'] .filter-submit {
@@ -717,21 +623,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   color: #0b1016 !important;
 }
 
-@keyframes ambientGlow {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 20px rgba(0, 240, 255, 0.2));
-  }
-
-  50% {
-    filter: drop-shadow(0 0 40px rgba(255, 0, 85, 0.3));
-  }
-}
-
-.neon-glow {
-  animation: ambientGlow 4s infinite ease-in-out;
-}
-
 @keyframes projectorSweep {
   0% {
     transform: translateX(-14%) skewX(-10deg);
@@ -761,7 +652,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   top: -12%;
   height: 132%;
   width: 34vw;
-  opacity: 0.2;
+  opacity: 0.12;
   filter: blur(24px);
   transform-origin: top center;
   background:
@@ -783,7 +674,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 
 .cinema-beam-b {
   right: 10%;
-  opacity: 0.16;
+  opacity: 0.1;
   transform: rotate(19deg);
   animation-delay: -4s;
 }
@@ -791,7 +682,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 .premiere-scanline {
   position: absolute;
   inset: 0;
-  opacity: 0.22;
+  opacity: 0.1;
   background:
     linear-gradient(
       to bottom,
@@ -851,7 +742,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   gap: 8px;
   width: min(520px, 100%);
   height: 7px;
-  opacity: 0.9;
+  opacity: 0.48;
 }
 
 .hero-signal-rail span {
@@ -870,25 +761,13 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 
 .hero-signal-rail span:nth-child(3n) {
   background:
-    linear-gradient(90deg, rgba(255, 0, 85, 0.1), rgba(255, 255, 255, 0.72), rgba(0, 240, 255, 0.22));
+    linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(255, 255, 255, 0.72), rgba(0, 240, 255, 0.22));
   animation-delay: -1.8s;
 }
 
 .filter-console {
   position: relative;
   overflow: visible;
-}
-
-.filter-console::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background:
-    radial-gradient(480px circle at var(--cursor-x, 50%) var(--cursor-y, 50%), rgba(0, 240, 255, 0.12), transparent 62%),
-    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
-  transition: opacity 180ms ease;
 }
 
 .filter-console::after {
@@ -910,11 +789,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   padding: 1px;
 }
 
-.filter-console:hover::before,
-.filter-console:focus-within::before {
-  opacity: 1;
-}
-
 .filter-console > * {
   position: relative;
   z-index: 1;
@@ -929,7 +803,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 .disclaimer-card {
   background:
     radial-gradient(520px circle at 0% 0%, rgba(0, 240, 255, 0.14), transparent 58%),
-    radial-gradient(480px circle at 100% 8%, rgba(255, 0, 85, 0.1), transparent 54%),
     linear-gradient(145deg, rgba(13, 13, 18, 0.96), rgba(5, 5, 8, 0.94));
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
@@ -984,7 +857,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   pointer-events: none;
   background:
     radial-gradient(560px circle at 13% 0%, rgba(0, 240, 255, 0.11), transparent 55%),
-    radial-gradient(620px circle at 86% 8%, rgba(255, 0, 85, 0.08), transparent 52%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 36%);
 }
 
@@ -1012,8 +884,19 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 }
 
 .search-result-shell {
-  width: fit-content;
+  width: 100%;
   min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .search-command-grid > div:first-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .search-result-shell .snap-start,
+  .search-result-shell .movie-card-spotlight {
+    width: 100%;
+  }
 }
 
 .search-preview-panel {
@@ -1028,9 +911,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(360px circle at 20% 0%, rgba(0, 240, 255, 0.16), transparent 62%),
-    radial-gradient(300px circle at 100% 14%, rgba(255, 0, 85, 0.11), transparent 58%);
+  background: radial-gradient(360px circle at 20% 0%, rgba(0, 240, 255, 0.16), transparent 62%);
 }
 
 .search-preview-panel > * {
@@ -1113,7 +994,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 }
 
 .movie-card-spotlight:hover::after,
-.movie-card-spotlight:focus-visible::after {
+.movie-card-spotlight:focus-within::after {
   opacity: 1;
 }
 
@@ -1122,7 +1003,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 }
 
 .movie-card-spotlight:hover > img,
-.movie-card-spotlight:focus-visible > img {
+.movie-card-spotlight:focus-within > img {
   transform: scale(1.035);
   filter: saturate(1.18) contrast(1.06);
 }
@@ -1171,21 +1052,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
 
   to {
     background-position: 0 180px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.001ms !important;
-  }
-
-.hero-autoplay-meter span {
-    transform: scaleX(1);
   }
 }
 
@@ -1245,19 +1111,14 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
     transition-duration: 0.01ms !important;
   }
 
-  .neon-glow {
-    animation: none;
-  }
-
-  .projector-sweep {
-    animation: none;
-  }
-
+  .projector-sweep,
   .cinema-beam,
   .premiere-scanline,
   .lens-iris,
   .cinema-title::after,
-  .hero-signal-rail span {
+  .hero-orbit,
+  .hero-signal-rail span,
+  .hero-autoplay-meter span {
     animation: none;
   }
 }

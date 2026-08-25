@@ -1,8 +1,8 @@
 import {
-  ChevronDown,
   Info,
   Loader2,
   Menu,
+  Pause,
   Play,
   Search,
   ShieldAlert,
@@ -18,8 +18,7 @@ import {
   type Variants,
 } from "framer-motion";
 import useSWR from "swr";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn } from "@/lib/utils";
 import {
   useEffect,
   useMemo,
@@ -27,13 +26,14 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  type RefObject,
 } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const API_ROOT = "/nguonc-api";
 const IMDB_API_ROOT = "/imdb-api";
 const IMDB_LOOKUP_ROOT = "/imdb-lookup-api";
-const PAGE_TITLE = "FuuCine | The Ultimate Cinematic Experience";
+const PAGE_TITLE = "FuuCine | Rạp phim tại nhà";
 const DISCLAIMER_STORAGE_KEY = "fuucine_demo_disclaimer_acknowledged";
 
 const PLACEHOLDER_IMAGE = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
@@ -282,10 +282,6 @@ const navItems = [
   { label: "Phim Lẻ", href: "#phim-le" },
   { label: "Phim Bộ", href: "#phim-bo" },
 ];
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -957,35 +953,103 @@ function useDebouncedValue<T>(value: T, delay = 350) {
   return debounced;
 }
 
-function useEscape(callback: () => void, enabled = true) {
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function useDialogFocus<T extends HTMLElement, U extends HTMLElement>({
+  dialogRef,
+  initialFocusRef,
+  onClose,
+}: {
+  dialogRef: RefObject<T>;
+  initialFocusRef: RefObject<U>;
+  onClose: () => void;
+}) {
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
+    const dialog = dialogRef.current;
+    const frame = window.requestAnimationFrame(() => initialFocusRef.current?.focus());
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        callback();
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialog) {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((element) => !element.hasAttribute("inert"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [callback, enabled]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [dialogRef, initialFocusRef, onClose]);
 }
 
+function RetryButton({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry: () => void;
+  isRetrying: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      disabled={isRetrying}
+      className="mt-4 inline-flex min-h-11 items-center justify-center rounded-md border border-current/30 px-4 text-sm font-bold transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:cursor-wait disabled:opacity-60"
+    >
+      {isRetrying ? "Đang thử lại" : "Thử lại"}
+    </button>
+  );
+}
+
+type DetailsSelection = {
+  slug: string;
+  morphId?: string;
+  selectedEpisodeUrl?: string;
+};
+
+type PlayerSelection = {
+  slug: string;
+  episodeUrl?: string;
+  morphId?: string;
+  returnTo: DetailsSelection;
+};
+
 export default function FuuCine_Root() {
-  const shellRef = useRef<HTMLDivElement>(null);
+  const backgroundRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [detailsSelection, setDetailsSelection] = useState<{
-    slug: string;
-    morphId?: string;
-  } | null>(null);
-  const [playerSelection, setPlayerSelection] = useState<{
-    slug: string;
-    episodeUrl?: string;
-    morphId?: string;
-  } | null>(null);
+  const [detailsSelection, setDetailsSelection] = useState<DetailsSelection | null>(null);
+  const [playerSelection, setPlayerSelection] = useState<PlayerSelection | null>(null);
   const [disclaimerOpen, setDisclaimerOpen] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -1000,8 +1064,14 @@ export default function FuuCine_Root() {
     useState<BrowseFilters>(defaultBrowseFilters);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
-  const { data: latestData, isLoading: latestLoading } =
-    useSWR<ApiListResponse>(fallbackKey(latestEndpoints), fetchFirstList);
+  const [heroPaused, setHeroPaused] = useState(false);
+  const {
+    data: latestData,
+    error: latestError,
+    isLoading: latestLoading,
+    isValidating: latestValidating,
+    mutate: retryLatest,
+  } = useSWR<ApiListResponse>(fallbackKey(latestEndpoints), fetchFirstList);
 
   const heroFilms = getItems(latestData).slice(0, 5);
   const heroFilm = heroFilms[heroIndex] ?? heroFilms[0];
@@ -1032,8 +1102,12 @@ export default function FuuCine_Root() {
     setHeroIndex(0);
   }, [latestData]);
 
+  const prefersReducedMotion = useReducedMotion();
+  const heroAutoplaying =
+    heroFilms.length > 1 && !overlayOpen && !heroPaused && !prefersReducedMotion;
+
   useEffect(() => {
-    if (heroFilms.length <= 1 || overlayOpen) {
+    if (!heroAutoplaying) {
       return;
     }
 
@@ -1042,15 +1116,63 @@ export default function FuuCine_Root() {
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [heroFilms.length, overlayOpen]);
+  }, [heroAutoplaying, heroFilms.length]);
 
   useEffect(() => {
-    document.body.style.overflow = overlayOpen ? "hidden" : "";
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = overlayOpen ? "hidden" : previousOverflow;
+    backgroundRef.current?.setAttribute("aria-hidden", String(overlayOpen));
+    if (backgroundRef.current) {
+      backgroundRef.current.inert = overlayOpen;
+    }
+
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
+      backgroundRef.current?.removeAttribute("aria-hidden");
+      if (backgroundRef.current) {
+        backgroundRef.current.inert = false;
+      }
     };
   }, [overlayOpen]);
 
+  const openOverlay = () => {
+    if (!openerRef.current && document.activeElement instanceof HTMLElement) {
+      openerRef.current = document.activeElement;
+    }
+  };
+  const restoreOpener = () => {
+    const opener = openerRef.current;
+    openerRef.current = null;
+    window.requestAnimationFrame(() => opener?.isConnected && opener.focus());
+  };
+  const openDetails = (selection: DetailsSelection) => {
+    openOverlay();
+    setDetailsSelection(selection);
+  };
+  const openPlayer = ({
+    slug,
+    episodeUrl,
+    morphId,
+    returnTo = { slug, morphId, selectedEpisodeUrl: episodeUrl },
+  }: Omit<PlayerSelection, "returnTo"> & { returnTo?: DetailsSelection }) => {
+    openOverlay();
+    setPlayerSelection({ slug, episodeUrl, morphId, returnTo });
+  };
+  const closeDetails = () => {
+    setDetailsSelection(null);
+    restoreOpener();
+  };
+  const closePlayer = (episodeUrl?: string) => {
+    if (!playerSelection) {
+      return;
+    }
+
+    setPlayerSelection(null);
+    setDetailsSelection({
+      ...playerSelection.returnTo,
+      selectedEpisodeUrl: episodeUrl ?? playerSelection.returnTo.selectedEpisodeUrl,
+    });
+  };
   const handlePreviewEnd = () => setAmbientImage(heroImage || PLACEHOLDER_IMAGE);
   const handleHeroSelect = (slug?: string) => {
     if (!slug) {
@@ -1072,50 +1194,58 @@ export default function FuuCine_Root() {
   };
 
   return (
-    <div
-      ref={shellRef}
-      onPointerMove={(event) => {
-        const target = shellRef.current;
-        if (!target) {
-          return;
-        }
-
-        target.style.setProperty("--cursor-x", `${event.clientX}px`);
-        target.style.setProperty("--cursor-y", `${event.clientY}px`);
-      }}
-      className="cinema-shell relative min-h-screen w-full overflow-hidden bg-[#030305] font-body text-[#FAFAFA] transition-colors duration-300"
-      >
+    <div className="cinema-shell relative min-h-screen w-full overflow-hidden bg-[#030305] font-body text-[#FAFAFA] transition-colors duration-300">
+      <div ref={backgroundRef}>
+        <a
+          href="#main-content"
+          className="skip-link fixed left-4 top-4 z-[100] -translate-y-20 rounded-md bg-[#00F0FF] px-4 py-3 font-bold text-[#030305] transition-transform focus:translate-y-0 focus:outline-none"
+        >
+          Bỏ qua điều hướng
+        </a>
         <AmbientLayer image={ambientImage} />
         <CinematicAtmosphere />
-      <div className="theme-readable-mask absolute inset-0 z-10 pointer-events-none" />
+        <div className="theme-readable-mask absolute inset-0 z-10 pointer-events-none" />
 
-      <Navigation
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenMenuSearch={() => setSearchOpen(true)}
-      />
-
-      <main className="relative z-20 w-full flex flex-col">
-        <HeroSection
-          film={heroFilm}
-          films={heroDeckFilms}
-          isLoading={latestLoading}
-          activeSlug={heroFilm?.slug}
-          onSelectFilm={handleHeroSelect}
-          onDetails={() =>
-            heroFilm?.slug &&
-            setDetailsSelection({
-              slug: heroFilm.slug,
-              morphId: `hero-${heroFilm.slug}`,
-            })
-          }
-          onPlay={() =>
-            heroFilm?.slug &&
-            setPlayerSelection({
-              slug: heroFilm.slug,
-              morphId: `hero-${heroFilm.slug}`,
-            })
-          }
+        <Navigation
+          onOpenSearch={() => {
+            openOverlay();
+            setSearchOpen(true);
+          }}
+          onOpenMenuSearch={() => {
+            openOverlay();
+            setSearchOpen(true);
+          }}
         />
+
+        <main id="main-content" className="relative z-20 flex w-full flex-col" tabIndex={-1}>
+          <HeroSection
+            film={heroFilm}
+            films={heroDeckFilms}
+            isLoading={latestLoading}
+            error={latestError}
+            isRetrying={latestValidating}
+            onRetry={() => void retryLatest()}
+            activeSlug={heroFilm?.slug}
+            autoplaying={heroAutoplaying}
+            paused={heroPaused}
+            onPause={() => setHeroPaused(true)}
+            onToggleAutoplay={() => setHeroPaused((paused) => !paused)}
+            onSelectFilm={handleHeroSelect}
+            onDetails={() =>
+              heroFilm?.slug &&
+              openDetails({
+                slug: heroFilm.slug,
+                morphId: `hero-${heroFilm.slug}`,
+              })
+            }
+            onPlay={() =>
+              heroFilm?.slug &&
+              openPlayer({
+                slug: heroFilm.slug,
+                morphId: `hero-${heroFilm.slug}`,
+              })
+            }
+          />
 
         <BrowseFilterPanel
           filters={draftFilters}
@@ -1124,28 +1254,29 @@ export default function FuuCine_Root() {
           onBrowse={handleBrowse}
         />
 
-        <BrowseResults
-          filters={appliedFilters}
-          onSelect={(slug, morphId) => setDetailsSelection({ slug, morphId })}
-          onPlay={(slug, morphId) => setPlayerSelection({ slug, morphId })}
-          onPreview={setAmbientImage}
-          onPreviewEnd={handlePreviewEnd}
-          onLoadingChange={setBrowseLoading}
-        />
+          <BrowseResults
+            filters={appliedFilters}
+            onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+            onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
+            onPreview={setAmbientImage}
+            onPreviewEnd={handlePreviewEnd}
+            onLoadingChange={setBrowseLoading}
+          />
 
-        <section className="pb-16 pt-2 md:pt-4" aria-label="Danh sách phim">
-          {rows.map((row) => (
-            <MovieRow
-              key={row.id}
-              row={row}
-              onSelect={(slug, morphId) => setDetailsSelection({ slug, morphId })}
-              onPlay={(slug, morphId) => setPlayerSelection({ slug, morphId })}
-              onPreview={setAmbientImage}
-              onPreviewEnd={handlePreviewEnd}
-            />
-          ))}
-        </section>
-      </main>
+          <section className="pb-16 pt-2 md:pt-4" aria-label="Danh sách phim">
+            {rows.map((row) => (
+              <MovieRow
+                key={row.id}
+                row={row}
+                onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+                onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
+                onPreview={setAmbientImage}
+                onPreviewEnd={handlePreviewEnd}
+              />
+            ))}
+          </section>
+        </main>
+      </div>
 
       <AnimatePresence>
         {disclaimerOpen ? (
@@ -1153,6 +1284,7 @@ export default function FuuCine_Root() {
             onClose={() => {
               window.localStorage.setItem(DISCLAIMER_STORAGE_KEY, "true");
               setDisclaimerOpen(false);
+              restoreOpener();
             }}
           />
         ) : null}
@@ -1161,14 +1293,17 @@ export default function FuuCine_Root() {
       <AnimatePresence>
         {searchOpen ? (
           <SearchOverlay
-            onClose={() => setSearchOpen(false)}
-              onSelect={(slug, morphId) => {
-                setSearchOpen(false);
-                setDetailsSelection({ slug, morphId });
-              }}
+            onClose={() => {
+              setSearchOpen(false);
+              restoreOpener();
+            }}
+            onSelect={(slug, morphId) => {
+              setSearchOpen(false);
+              openDetails({ slug, morphId });
+            }}
             onPlay={(slug, morphId) => {
               setSearchOpen(false);
-              setPlayerSelection({ slug, morphId });
+              openPlayer({ slug, morphId });
             }}
             onPreview={setAmbientImage}
             onPreviewEnd={handlePreviewEnd}
@@ -1181,13 +1316,19 @@ export default function FuuCine_Root() {
           <DetailsModal
             slug={detailsSelection.slug}
             morphId={detailsSelection.morphId}
-            onClose={() => setDetailsSelection(null)}
+            initialEpisodeUrl={detailsSelection.selectedEpisodeUrl}
+            onClose={closeDetails}
             onPlay={(slug, episodeUrl) => {
+              const returnTo = {
+                ...detailsSelection,
+                selectedEpisodeUrl: episodeUrl,
+              };
               setDetailsSelection(null);
-              setPlayerSelection({
+              openPlayer({
                 slug,
                 episodeUrl,
                 morphId: detailsSelection.morphId,
+                returnTo,
               });
             }}
           />
@@ -1200,7 +1341,7 @@ export default function FuuCine_Root() {
             slug={playerSelection.slug}
             initialUrl={playerSelection.episodeUrl}
             morphId={playerSelection.morphId}
-            onClose={() => setPlayerSelection(null)}
+            onClose={closePlayer}
           />
         ) : null}
       </AnimatePresence>
@@ -1209,8 +1350,14 @@ export default function FuuCine_Root() {
 }
 
 function DisclaimerModal({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus({ dialogRef, initialFocusRef: confirmRef, onClose });
+
   return (
     <motion.div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-[80] flex items-center justify-center bg-[#030305]/88 px-4 py-8 backdrop-blur-2xl"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -1219,6 +1366,7 @@ function DisclaimerModal({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="disclaimer-title"
+      aria-describedby="disclaimer-description"
     >
       <motion.div
         className="disclaimer-card relative w-full max-w-2xl overflow-hidden rounded-lg border border-white/10 bg-[#0B0B10]/92 p-5 shadow-[0_30px_100px_rgba(0,0,0,0.72)] md:p-7"
@@ -1245,7 +1393,7 @@ function DisclaimerModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="space-y-3 text-sm leading-7 text-[#D4D4D8] md:text-base">
+          <div id="disclaimer-description" className="space-y-3 text-sm leading-7 text-[#D4D4D8] md:text-base">
             <p>
               FuuCine là project demo được thực hiện bởi{" "}
               <a
@@ -1277,6 +1425,7 @@ function DisclaimerModal({ onClose }: { onClose: () => void }) {
               Bấm xác nhận để tiếp tục vào trang.
             </p>
             <button
+              ref={confirmRef}
               type="button"
               onClick={onClose}
               className="inline-flex h-12 items-center justify-center rounded-full bg-white px-6 font-display text-sm font-extrabold text-[#030305] transition-transform hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] active:scale-[0.98]"
@@ -1298,19 +1447,19 @@ function AmbientLayer({ image }: { image: string }) {
           key={image}
           src={image}
           alt=""
-          className="absolute inset-[-10%] h-[120%] w-[120%] object-cover opacity-42 blur-3xl saturate-[1.28] contrast-125"
+          className="absolute inset-[-10%] h-[120%] w-[120%] object-cover opacity-30 blur-3xl saturate-110 contrast-110"
           initial={{ opacity: 0 }}
-          animate={{ opacity: 0.42 }}
+          animate={{ opacity: 0.3 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
         />
       </AnimatePresence>
-      <div className="projector-grid absolute inset-0 opacity-35" />
-      <div className="projector-sweep absolute -left-1/4 top-0 h-full w-2/3 bg-[linear-gradient(100deg,transparent,rgba(0,240,255,0.13),rgba(255,255,255,0.08),transparent)] blur-2xl" />
-      <div className="filmstrip-mask absolute left-0 right-0 top-28 h-3 opacity-20" />
-      <div className="filmstrip-mask absolute bottom-20 left-0 right-0 h-3 opacity-10" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_72%_22%,rgba(255,0,85,0.12),transparent_38%),radial-gradient(ellipse_at_22%_42%,rgba(0,240,255,0.12),transparent_36%)]" />
-      <div className="ambient-dim absolute inset-0 bg-[#030305]/[0.68]" />
+      <div className="projector-grid absolute inset-0 opacity-20" />
+      <div className="projector-sweep absolute -left-1/4 top-0 h-full w-2/3 bg-[linear-gradient(100deg,transparent,rgba(0,240,255,0.08),rgba(255,255,255,0.04),transparent)] blur-2xl" />
+      <div className="filmstrip-mask absolute left-0 right-0 top-28 h-3 opacity-10" />
+      <div className="filmstrip-mask absolute bottom-20 left-0 right-0 h-3 opacity-[0.06]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_22%_42%,rgba(0,240,255,0.08),transparent_36%)]" />
+      <div className="ambient-dim absolute inset-0 bg-[#030305]/[0.76]" />
     </div>
   );
 }
@@ -1335,12 +1484,33 @@ function Navigation({
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeHref, setActiveHref] = useState("#home");
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const targets = navItems
+      .map(({ href }) => document.querySelector<HTMLElement>(href))
+      .filter((target): target is HTMLElement => Boolean(target));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible?.target.id) {
+          setActiveHref(`#${visible.target.id}`);
+        }
+      },
+      { rootMargin: "-25% 0px -60%", threshold: [0, 0.15, 0.5] },
+    );
+
+    targets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
   }, []);
 
   return (
@@ -1365,13 +1535,15 @@ function Navigation({
           className="hidden items-center gap-8 text-sm font-medium text-[#A1A1AA] md:flex"
           aria-label="Primary"
         >
-          {navItems.map((item, index) => (
+          {navItems.map((item) => (
             <a
               key={item.href}
               href={item.href}
+              onClick={() => setActiveHref(item.href)}
+              aria-current={activeHref === item.href ? "page" : undefined}
               className={cn(
                 "nav-link transition-colors hover:text-white focus:outline-none focus-visible:text-white",
-                index === 0
+                activeHref === item.href
                   ? "text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]"
                   : "",
               )}
@@ -1386,7 +1558,7 @@ function Navigation({
           <button
             type="button"
             onClick={onOpenSearch}
-            className="nav-icon-button rounded-full p-2 text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            className="nav-icon-button inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
             aria-label="Mở tìm kiếm"
           >
             <Search className="h-5 w-5" />
@@ -1394,7 +1566,7 @@ function Navigation({
           <button
             type="button"
             onClick={() => setMenuOpen((value) => !value)}
-            className="nav-icon-button block rounded-full p-2 text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:hidden"
+            className="nav-icon-button inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:hidden"
             aria-expanded={menuOpen}
             aria-label="Mở menu"
           >
@@ -1416,8 +1588,12 @@ function Navigation({
               <a
                 key={item.href}
                 href={item.href}
-                onClick={() => setMenuOpen(false)}
-                className="block rounded-md px-3 py-3 text-sm font-semibold text-[#D4D4D8] transition-colors hover:bg-white/5 hover:text-white"
+                onClick={() => {
+                  setActiveHref(item.href);
+                  setMenuOpen(false);
+                }}
+                aria-current={activeHref === item.href ? "page" : undefined}
+                className="block min-h-11 rounded-md px-3 py-3 text-sm font-semibold text-[#D4D4D8] transition-colors hover:bg-white/5 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
               >
                 {item.label}
               </a>
@@ -1432,7 +1608,7 @@ function Navigation({
                 setMenuOpen(false);
                 onOpenMenuSearch();
               }}
-              className="mt-2 flex w-full items-center gap-2 rounded-md px-3 py-3 text-left text-sm font-semibold text-[#00F0FF] transition-colors hover:bg-[#00F0FF]/10"
+              className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-3 text-left text-sm font-semibold text-[#00F0FF] transition-colors hover:bg-[#00F0FF]/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
             >
               <Search className="h-4 w-4" />
               Tìm kiếm
@@ -1448,7 +1624,14 @@ function HeroSection({
   film,
   films,
   isLoading,
+  error,
+  isRetrying,
+  onRetry,
   activeSlug,
+  autoplaying,
+  paused,
+  onPause,
+  onToggleAutoplay,
   onSelectFilm,
   onDetails,
   onPlay,
@@ -1456,7 +1639,14 @@ function HeroSection({
   film?: FilmSummary;
   films: FilmSummary[];
   isLoading: boolean;
+  error?: Error;
+  isRetrying: boolean;
+  onRetry: () => void;
   activeSlug?: string;
+  autoplaying: boolean;
+  paused: boolean;
+  onPause: () => void;
+  onToggleAutoplay: () => void;
   onSelectFilm: (slug?: string) => void;
   onDetails: () => void;
   onPlay: () => void;
@@ -1468,6 +1658,9 @@ function HeroSection({
   return (
     <section
       id="home"
+      aria-busy={isLoading || isRetrying}
+      onPointerEnter={onPause}
+      onFocusCapture={onPause}
       className="relative grid min-h-[100dvh] w-full overflow-hidden px-6 pb-20 pt-32 md:min-h-[760px] md:grid-cols-[minmax(0,1fr)_minmax(340px,520px)] md:items-end md:gap-12 md:px-16 md:pb-24 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,600px)]"
     >
       {film ? (
@@ -1494,6 +1687,14 @@ function HeroSection({
       <div className="relative z-20 flex w-full min-w-0 max-w-[850px] flex-col gap-5 self-end">
         {isLoading ? (
           <HeroSkeleton />
+        ) : error ? (
+          <div
+            role="alert"
+            className="state-panel state-panel-error max-w-lg rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold text-[#F4C7D4]"
+          >
+            <p>Không thể tải phim mới. Vui lòng thử lại.</p>
+            <RetryButton onRetry={onRetry} isRetrying={isRetrying} />
+          </div>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
           <motion.div
@@ -1572,20 +1773,33 @@ function HeroSection({
               <span />
             </motion.div>
 
-            <div
-              key={film?.slug ?? filmTitle(film)}
-              className="hero-autoplay-meter"
-              aria-hidden="true"
-            >
-              <span />
-            </div>
+            {autoplaying ? (
+              <div
+                key={film?.slug ?? filmTitle(film)}
+                className="hero-autoplay-meter"
+                aria-hidden="true"
+              >
+                <span />
+              </div>
+            ) : null}
 
             {films.length > 1 ? (
-              <HeroTimeline
-                films={films}
-                activeSlug={activeSlug}
-                onSelect={onSelectFilm}
-              />
+              <div className="flex flex-wrap items-center gap-3">
+                <HeroTimeline
+                  films={films}
+                  activeSlug={activeSlug}
+                  onSelect={onSelectFilm}
+                />
+                <button
+                  type="button"
+                  onClick={onToggleAutoplay}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border border-white/15 bg-black/20 px-3 text-sm font-bold text-[#D4D4D8] transition-colors hover:border-[#00F0FF]/45 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                  aria-pressed={!paused}
+                >
+                  {paused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4 fill-current" />}
+                  {paused ? "Tiếp tục" : "Tạm dừng"}
+                </button>
+              </div>
             ) : null}
 
             {description ? (
@@ -1630,6 +1844,17 @@ function HeroSection({
           </motion.div>
           </AnimatePresence>
         )}
+        <p className="sr-only" aria-live="polite">
+          {isLoading
+            ? "Đang tải phim mới"
+            : error
+              ? "Không thể tải phim mới"
+              : autoplaying
+                ? "Tự động chuyển phim đang bật"
+                : paused
+                  ? "Tự động chuyển phim đã tạm dừng"
+                  : "Tự động chuyển phim không khả dụng"}
+        </p>
       </div>
 
       <HeroPosterDeck
@@ -1658,7 +1883,7 @@ function HeroTimeline({
 
         return (
           <button
-            key={item.slug ?? index}
+            key={`${item.slug ?? filmTitle(item)}-${index}`}
             type="button"
             onClick={() => onSelect(item.slug)}
             className={cn(
@@ -1708,7 +1933,7 @@ function HeroPosterDeck({
 
           return (
             <motion.button
-              key={item.slug ?? index}
+              key={`${item.slug ?? filmTitle(item)}-${index}`}
               type="button"
               onClick={() => onSelect(item.slug)}
               className={cn(
@@ -1744,7 +1969,7 @@ function HeroPosterDeck({
           <div className="space-y-2">
             {deck.slice(0, 3).map((item, index) => (
               <div
-                key={item.slug ?? index}
+                key={`${item.slug ?? filmTitle(item)}-${index}`}
                 className={cn(
                   "grid grid-cols-[1.5rem_1fr_auto] items-center gap-3 border-t border-white/[0.08] pt-2 first:border-t-0 first:pt-0",
                   (item.slug ?? filmTitle(item)) === activeKey ? "hero-tuning-active" : "",
@@ -1873,7 +2098,7 @@ function BrowseFilterPanel({
                   type="button"
                   onClick={() => setList(item.value as BrowseFilters["list"])}
                   className={cn(
-                    "filter-segment h-10 rounded-[7px] px-3 text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
+                    "filter-segment min-h-11 rounded-[7px] px-3 text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
                     active
                       ? "filter-segment-active bg-white text-[#030305]"
                       : "filter-segment-idle text-[#D4D4D8] hover:bg-white/10 hover:text-white",
@@ -1971,98 +2196,25 @@ function FilterSelect({
   options: { label: string; value: string }[];
   onChange: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const selected = options.find((option) => option.value === value) ?? options[0];
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [open]);
+  const id = `filter-${stripVietnamese(label).replace(/\s+/g, "-")}`;
 
   return (
-    <div ref={rootRef} className="filter-select-root relative">
-      <button
-        type="button"
-        onClick={() => setOpen((next) => !next)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setOpen(false);
-          }
-        }}
-        className={cn(
-          "filter-select flex h-12 w-full items-center justify-between gap-3 rounded-md border border-white/[0.1] bg-[#0B0B10] px-3 text-left text-sm font-bold text-white outline-none transition-colors hover:border-white/25 focus:border-[#00F0FF] focus:ring-2 focus:ring-[#00F0FF]/25",
-          open ? "filter-select-open" : "",
-        )}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={label}
+    <div>
+      <label className="sr-only" htmlFor={id}>
+        {label}
+      </label>
+      <select
+        id={id}
+        className="filter-select h-12 w-full rounded-md border border-white/[0.1] bg-[#0B0B10] px-3 text-sm font-bold text-white outline-none transition-colors hover:border-white/25 focus:border-[#00F0FF] focus:ring-2 focus:ring-[#00F0FF]/25"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
       >
-        <span className="truncate">{selected?.label ?? label}</span>
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 transition-transform duration-200",
-            open ? "rotate-180" : "",
-          )}
-        />
-      </button>
-
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            className="filter-select-menu absolute left-0 top-[calc(100%+8px)] z-[120] w-full overflow-hidden rounded-md border border-[#00F0FF]/20 bg-[#0B0F19] p-1 shadow-[0_18px_42px_rgba(0,0,0,0.42)]"
-            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            role="listbox"
-            aria-label={label}
-          >
-            <div
-              className="filter-select-options max-h-72 overflow-y-auto overscroll-contain"
-              onWheel={(event) => event.stopPropagation()}
-            >
-              {options.map((option) => {
-                const active = option.value === value;
-
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      onChange(option.value);
-                      setOpen(false);
-                    }}
-                    className={cn(
-                      "filter-select-option flex w-full items-center justify-between rounded-[7px] px-3 py-2.5 text-left text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
-                      active
-                        ? "filter-select-option-active bg-[#00F0FF]/16 text-white"
-                        : "text-[#D4D4D8] hover:bg-white/10 hover:text-white",
-                    )}
-                    role="option"
-                    aria-selected={active}
-                  >
-                    <span>{option.label}</span>
-                    {active ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#00F0FF] shadow-[0_0_12px_rgba(0,240,255,0.7)]" />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -2084,7 +2236,7 @@ function BrowseResults({
 }) {
   const [page, setPage] = useState(1);
   const resultKey = browseResultsKey(filters);
-  const { data, error, isLoading } = useSWR<FilmSummary[]>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<FilmSummary[]>(
     resultKey,
     fetchBrowseResults,
   );
@@ -2114,6 +2266,7 @@ function BrowseResults({
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       aria-labelledby="browse-results-title"
+      aria-busy={isLoading || isValidating}
     >
       <div className="browse-results-surface row-lane rounded-lg border border-white/[0.08] p-4 md:p-7">
         <div className="mb-7 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -2126,7 +2279,9 @@ function BrowseResults({
               {browseTitle(filters)}
             </h2>
           </div>
-
+          <p className="sr-only" aria-live="polite">
+            {isLoading ? "Đang tải danh sách phim" : error ? "Không thể tải danh sách phim" : `${films.length} phim`}
+          </p>
         </div>
 
         <AnimatePresence mode="wait" initial={false}>
@@ -2145,20 +2300,21 @@ function BrowseResults({
             : null}
 
           {error ? (
-            <div className="state-panel state-panel-error col-span-full w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold text-[#F4C7D4]">
-              Không thể tải danh sách phim. Vui lòng thử lại sau.
+            <div role="alert" className="state-panel state-panel-error col-span-full w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold text-[#F4C7D4]">
+              <p>Không thể tải danh sách phim. Vui lòng thử lại.</p>
+              <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
             </div>
           ) : null}
 
           {!isLoading && !error && films.length === 0 ? (
-            <div className="state-panel col-span-full w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm font-semibold text-[#D4D4D8]">
+            <div role="status" className="state-panel col-span-full w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm font-semibold text-[#D4D4D8]">
               Chưa có phim phù hợp với bộ lọc này.
             </div>
           ) : null}
 
           {visibleFilms.map((film, index) => (
             <motion.div
-              key={film.slug ?? `${filmTitle(film)}-${index}`}
+              key={`${film.slug ?? filmTitle(film)}-${index}`}
               className="result-card-motion relative z-10 hover:z-50 focus-within:z-50"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -2187,7 +2343,7 @@ function BrowseResults({
               type="button"
               onClick={() => setPage((value) => Math.max(1, value - 1))}
               disabled={currentPage === 1}
-              className="pagination-button h-10 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-bold text-white transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:pointer-events-none disabled:opacity-40"
+              className="pagination-button min-h-11 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-bold text-white transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:pointer-events-none disabled:opacity-40"
             >
               Trước
             </button>
@@ -2206,7 +2362,7 @@ function BrowseResults({
                   return (
                     <span
                       key={pageNumber}
-                      className="flex h-10 w-10 items-center justify-center text-sm font-bold text-[#71717A]"
+                      className="flex min-h-11 min-w-11 items-center justify-center text-sm font-bold text-[#71717A]"
                     >
                       ...
                     </span>
@@ -2223,7 +2379,7 @@ function BrowseResults({
                   onClick={() => setPage(pageNumber)}
                   aria-current={pageNumber === currentPage ? "page" : undefined}
                   className={cn(
-                    "pagination-button h-10 min-w-10 rounded-md border px-3 text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
+                    "pagination-button min-h-11 min-w-11 rounded-md border px-3 text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
                     pageNumber === currentPage
                       ? "pagination-button-active border-[#00F0FF] bg-[#00F0FF]/15 text-white"
                       : "pagination-button-idle border-white/10 bg-black/20 text-[#D4D4D8] hover:bg-white/10 hover:text-white",
@@ -2237,7 +2393,7 @@ function BrowseResults({
               type="button"
               onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
               disabled={currentPage === totalPages}
-              className="pagination-button h-10 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-bold text-white transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:pointer-events-none disabled:opacity-40"
+              className="pagination-button min-h-11 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-bold text-white transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:pointer-events-none disabled:opacity-40"
             >
               Sau
             </button>
@@ -2261,7 +2417,7 @@ function MovieRow({
   onPreview: (image: string) => void;
   onPreviewEnd: () => void;
 }) {
-  const { data, error, isLoading } = useSWR<ApiListResponse>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ApiListResponse>(
     fallbackKey(row.endpoints),
     fetchFirstList,
   );
@@ -2281,8 +2437,12 @@ function MovieRow({
       viewport={{ once: true, margin: "-100px" }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
       aria-labelledby={`${row.id}-title`}
+      aria-busy={isLoading || isValidating}
     >
       <div className="row-lane rounded-l-lg border border-r-0 border-white/[0.08] py-5 pl-4 shadow-[0_22px_60px_rgba(0,0,0,0.28)] md:py-6 md:pl-6">
+      <p className="sr-only" aria-live="polite">
+        {isLoading ? `Đang tải ${row.title}` : error ? `Không thể tải ${row.title}` : `${films.length} phim trong ${row.title}`}
+      </p>
       <div className="mb-6 flex flex-col gap-3 pr-6 sm:flex-row sm:items-end sm:justify-between md:pr-16">
         <div className="flex items-end gap-3 md:gap-4">
           <span className="hidden font-display text-5xl font-extrabold leading-none tracking-[-0.025em] text-white/[0.055] md:block">
@@ -2298,12 +2458,6 @@ function MovieRow({
           {row.title}
         </h2>
         </div>
-        <a
-          href={`#${row.id}`}
-          className="w-fit rounded-full border border-[#00F0FF]/20 bg-[#00F0FF]/[0.08] px-4 py-2 text-sm font-semibold text-[#7AF7FF] transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
-        >
-          Xem tất cả
-        </a>
       </div>
 
       <div className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto pb-5 pr-6 md:gap-6 md:pr-16">
@@ -2314,20 +2468,21 @@ function MovieRow({
         ) : null}
 
         {error ? (
-          <div className="min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
-            Không thể tải hàng phim này. Vui lòng thử lại sau.
+          <div role="alert" className="state-panel state-panel-error min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
+            <p>Không thể tải hàng phim này. Vui lòng thử lại.</p>
+            <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
         ) : null}
 
         {!isLoading && !error && films.length === 0 ? (
-          <div className="min-h-[180px] w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm text-[#D4D4D8]">
+          <div role="status" className="state-panel min-h-[180px] w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm text-[#D4D4D8]">
             Chưa có phim trong danh mục này.
           </div>
         ) : null}
 
         {films.map((film, index) => (
           <MovieCard
-            key={film.slug}
+            key={`${film.slug ?? filmTitle(film)}-${index}`}
             film={film}
             morphId={`row-${row.id}-${index}-${film.slug ?? filmTitle(film)}`}
             onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
@@ -2359,11 +2514,11 @@ function MovieCard({
   onPreview: () => void;
   onPreviewEnd: () => void;
 }) {
-  const cardRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [rotate, setRotate] = useState({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState(false);
 
-  const handleMouseMove = (event: MouseEvent<HTMLButtonElement>) => {
+  const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) {
       return;
     }
@@ -2373,14 +2528,18 @@ function MovieCard({
     const y = event.clientY - rect.top;
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    const rotateX = ((y - centerY) / centerY) * -10;
-    const rotateY = ((x - centerX) / centerX) * 10;
-
     cardRef.current.style.setProperty("--card-x", `${x}px`);
     cardRef.current.style.setProperty("--card-y", `${y}px`);
-    setRotate({ x: rotateX, y: rotateY });
+    setRotate({
+      x: ((y - centerY) / centerY) * -10,
+      y: ((x - centerX) / centerX) * 10,
+    });
   };
 
+  const beginPreview = () => {
+    setIsHovered(true);
+    onPreview();
+  };
   const clearTilt = () => {
     setIsHovered(false);
     setRotate({ x: 0, y: 0 });
@@ -2389,19 +2548,15 @@ function MovieCard({
 
   return (
     <div className="snap-start">
-      <button
+      <article
         ref={cardRef}
-        type="button"
-        onClick={() => onSelect(morphId)}
-        onMouseEnter={() => {
-          setIsHovered(true);
-          onPreview();
+        onMouseEnter={beginPreview}
+        onFocusCapture={beginPreview}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+            clearTilt();
+          }
         }}
-        onFocus={() => {
-          setIsHovered(true);
-          onPreview();
-        }}
-        onBlur={clearTilt}
         onMouseLeave={clearTilt}
         onMouseMove={handleMouseMove}
         style={{
@@ -2411,10 +2566,9 @@ function MovieCard({
             : "transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         className={cn(
-          "movie-card-spotlight group relative z-10 aspect-[2/3] w-[160px] shrink-0 cursor-pointer rounded-lg bg-white/[0.035] p-px text-left will-change-transform hover:z-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:w-[220px]",
+          "movie-card-spotlight group relative z-10 aspect-[2/3] w-[160px] shrink-0 rounded-lg bg-white/[0.035] p-px text-left will-change-transform hover:z-30 focus-within:z-30 md:w-[220px]",
           isActive ? "movie-card-active" : "",
         )}
-        aria-label={`Xem chi tiết ${filmTitle(film)}`}
       >
         <div
           className={cn(
@@ -2432,15 +2586,21 @@ function MovieCard({
             event.currentTarget.src = PLACEHOLDER_IMAGE;
           }}
         />
-        <div className="absolute left-2 top-2 rounded-md border border-black/25 bg-black/[0.45] px-2 py-1 text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+        <button
+          type="button"
+          onClick={() => onSelect(morphId)}
+          className="absolute inset-0 z-[3] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+          aria-label={`Xem chi tiết ${filmTitle(film)}`}
+        />
+        <div className="pointer-events-none absolute left-2 top-2 z-[4] rounded-md border border-black/25 bg-black/[0.45] px-2 py-1 text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
           {film.quality ?? "HD"}
         </div>
         <ImdbBadge
           film={film}
           compact
-          className="absolute right-2 top-2 bg-black/[0.55] backdrop-blur"
+          className="pointer-events-none absolute right-2 top-2 z-[4] bg-black/[0.55] backdrop-blur"
         />
-        <div className="absolute inset-x-px bottom-px rounded-b-lg bg-gradient-to-t from-black via-black/[0.72] to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
+        <div className="pointer-events-none absolute inset-x-px bottom-px z-[4] rounded-b-lg bg-gradient-to-t from-black via-black/[0.72] to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white md:text-[0.9375rem]">
             {filmTitle(film)}
           </h3>
@@ -2448,21 +2608,17 @@ function MovieCard({
             <p className="line-clamp-1 text-xs text-[#D4D4D8]">
               {metaParts(film).slice(0, 2).join(" / ") || "FuuCine"}
             </p>
-            <span
-              onClick={(event) => {
-                event.stopPropagation();
-                onPlay(morphId);
-              }}
-              className="card-play-button inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-[#030305] transition-transform group-hover:scale-110"
-              role="button"
-              tabIndex={-1}
-              aria-hidden="true"
-            >
-              <Play className="h-4 w-4 fill-current" />
-            </span>
           </div>
         </div>
-      </button>
+        <button
+          type="button"
+          onClick={() => onPlay(morphId)}
+          className="card-play-button absolute bottom-3 right-3 z-[5] inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#030305] shadow-lg shadow-black/30 transition-transform hover:scale-110 focus:outline-none focus-visible:scale-110 focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+          aria-label={`Xem ngay ${filmTitle(film)}`}
+        >
+          <Play className="ml-0.5 h-4 w-4 fill-current" />
+        </button>
+      </article>
     </div>
   );
 }
@@ -2505,15 +2661,16 @@ function SearchOverlay({
   const searchUrl = shouldSearch
     ? apiUrl(`films/search?keyword=${encodeURIComponent(debouncedKeyword)}`)
     : null;
-  const { data, error, isLoading } = useSWR<ApiListResponse>(searchUrl, fetcher);
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ApiListResponse>(searchUrl, fetcher);
   const results = getItems(data);
   const [activeIndex, setActiveIndex] = useState(0);
   const activeFilm = results[activeIndex] ?? results[0];
   const activeMorphId = activeFilm
     ? `search-${activeIndex}-${activeFilm.slug ?? filmTitle(activeFilm)}`
     : undefined;
-
-  useEscape(onClose);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useDialogFocus({ dialogRef, initialFocusRef: inputRef, onClose });
 
   useEffect(() => {
     setActiveIndex(0);
@@ -2556,7 +2713,9 @@ function SearchOverlay({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#030305]/95 p-6 backdrop-blur-2xl md:p-16"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#030305]/95 p-4 backdrop-blur-2xl md:p-16"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -2564,6 +2723,7 @@ function SearchOverlay({
       role="dialog"
       aria-modal="true"
       aria-label="Tìm kiếm phim"
+      aria-busy={isLoading || isValidating}
     >
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-8 flex items-center justify-between gap-4">
@@ -2573,7 +2733,7 @@ function SearchOverlay({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-white transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
             aria-label="Đóng tìm kiếm"
           >
             <X className="h-8 w-8" />
@@ -2584,6 +2744,7 @@ function SearchOverlay({
           Tìm kiếm phim
         </label>
         <input
+          ref={inputRef}
           id="search-input"
           type="text"
           value={keyword}
@@ -2591,10 +2752,9 @@ function SearchOverlay({
           onKeyDown={handleSearchKeyDown}
           placeholder="Tìm kiếm phim, đạo diễn, diễn viên..."
           className="w-full border-b-2 border-[#3F3F46] bg-transparent py-4 font-display text-3xl font-bold leading-[1.18] tracking-[-0.015em] text-white outline-none transition-colors placeholder:text-[#71717A] focus:border-[#00F0FF] md:text-5xl"
-          autoFocus
         />
 
-        <div className="mt-8 min-h-8 text-sm font-medium text-[#A1A1AA]">
+        <div className="mt-8 min-h-8 text-sm font-medium text-[#A1A1AA]" aria-live="polite">
           {isLoading ? (
             <span className="inline-flex items-center gap-2 text-[#00F0FF]">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -2615,8 +2775,9 @@ function SearchOverlay({
         </div>
 
         {error ? (
-          <div className="mt-8 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
-            Không thể tìm kiếm lúc này. Vui lòng thử lại sau.
+          <div role="alert" className="state-panel state-panel-error mt-8 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
+            <p>Không thể tìm kiếm lúc này. Vui lòng thử lại.</p>
+            <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
         ) : null}
 
@@ -2632,7 +2793,7 @@ function SearchOverlay({
               : null}
 
             {!isLoading && shouldSearch && results.length === 0 && !error ? (
-              <div className="state-panel col-span-full rounded-lg border border-white/10 bg-white/[0.04] p-6 text-[#D4D4D8]">
+              <div role="status" className="state-panel col-span-full rounded-lg border border-white/10 bg-white/[0.04] p-6 text-[#D4D4D8]">
                 Không có phim nào khớp với từ khóa này.
               </div>
             ) : null}
@@ -2642,7 +2803,7 @@ function SearchOverlay({
 
               return (
                 <motion.div
-                  key={film.slug ?? `${filmTitle(film)}-${index}`}
+                  key={`${film.slug ?? filmTitle(film)}-${index}`}
                   className="search-result-shell"
                   onMouseEnter={() => setActiveIndex(index)}
                   onFocusCapture={() => setActiveIndex(index)}
@@ -2742,18 +2903,22 @@ function SearchOverlay({
 function DetailsModal({
   slug,
   morphId,
+  initialEpisodeUrl,
   onClose,
   onPlay,
 }: {
   slug: string;
   morphId?: string;
+  initialEpisodeUrl?: string;
   onClose: () => void;
   onPlay: (slug: string, episodeUrl?: string) => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [selectedEpisodeUrl, setSelectedEpisodeUrl] = useState<string | null>(
-    null,
+    initialEpisodeUrl ?? null,
   );
-  const { data, error, isLoading } = useSWR<ApiDetailResponse>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ApiDetailResponse>(
     apiUrl(`film/${slug}`),
     fetcher,
   );
@@ -2765,15 +2930,17 @@ function DetailsModal({
   const description = toText(movie?.description ?? movie?.content);
   const categories = categoryLabels(movie);
 
-  useEscape(onClose);
+  useDialogFocus({ dialogRef, initialFocusRef: closeRef, onClose });
 
   useEffect(() => {
-    setSelectedEpisodeUrl(null);
-  }, [slug]);
+    setSelectedEpisodeUrl(initialEpisodeUrl ?? null);
+  }, [initialEpisodeUrl, slug]);
 
   return (
     <motion.div
-      className="fixed inset-0 z-[55] overflow-y-auto bg-[#030305]/95 p-6 backdrop-blur-xl md:p-10"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-[55] overflow-y-auto bg-[#030305]/95 p-4 backdrop-blur-xl md:p-10"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -2781,11 +2948,13 @@ function DetailsModal({
       role="dialog"
       aria-modal="true"
       aria-label="Chi tiết phim"
+      aria-busy={isLoading || isValidating}
     >
       <button
+        ref={closeRef}
         type="button"
         onClick={onClose}
-        className="fixed right-6 top-6 z-10 rounded-full p-2 text-white transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+        className="fixed right-4 top-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:right-6 md:top-6"
         aria-label="Đóng chi tiết"
       >
         <X className="h-8 w-8" />
@@ -2797,8 +2966,9 @@ function DetailsModal({
         ) : null}
 
         {error ? (
-          <div className="md:col-span-2 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-6 text-[#F4C7D4]">
-            Không thể tải chi tiết phim. Vui lòng thử lại sau.
+          <div role="alert" className="state-panel state-panel-error md:col-span-2 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-6 text-[#F4C7D4]">
+            <p>Không thể tải chi tiết phim. Vui lòng thử lại.</p>
+            <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
         ) : null}
 
@@ -2926,15 +3096,11 @@ function EpisodePicker({
       )}
       aria-label="Chọn tập phim"
     >
-      <div className="hidden">
-        <div>
-          <h3 className="font-display text-base font-bold text-white">
-            Chọn tập phim
-          </h3>
-          <p className="mt-1 text-xs text-[#A1A1AA]">
-            {summary}
-          </p>
-        </div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="font-display text-base font-bold text-white">
+          Chọn tập phim
+        </h3>
+        <p className="text-right text-xs font-semibold text-[#A1A1AA]">{summary}</p>
       </div>
 
       <div className="max-h-72 space-y-5 overflow-y-auto pr-1">
@@ -2942,7 +3108,7 @@ function EpisodePicker({
           <div key={group.key}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h4 className="text-sm font-bold text-white">{group.title}</h4>
-              <span className="hidden">
+              <span className="text-xs font-semibold text-[#A1A1AA]">
                 {group.episodes.length} tập
               </span>
             </div>
@@ -2989,10 +3155,12 @@ function PlayerModal({
   slug: string;
   initialUrl?: string;
   morphId?: string;
-  onClose: () => void;
+  onClose: (episodeUrl?: string) => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
-  const { data, error, isLoading } = useSWR<ApiDetailResponse>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ApiDetailResponse>(
     apiUrl(`film/${slug}`),
     fetcher,
   );
@@ -3005,7 +3173,8 @@ function PlayerModal({
     (episode) => getEpisodeUrl(episode) === embedUrl,
   );
 
-  useEscape(onClose);
+  const closePlayer = () => onClose(selectedUrl ?? embedUrl);
+  useDialogFocus({ dialogRef, initialFocusRef: closeRef, onClose: closePlayer });
 
   useEffect(() => {
     setSelectedUrl(initialUrl ?? null);
@@ -3013,6 +3182,8 @@ function PlayerModal({
 
   return (
     <motion.div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-[60] flex flex-col bg-black"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -3021,11 +3192,13 @@ function PlayerModal({
       role="dialog"
       aria-modal="true"
       aria-label="Trình phát phim"
+      aria-busy={isLoading || isValidating}
     >
       <button
+        ref={closeRef}
         type="button"
-        onClick={onClose}
-        className="absolute right-6 top-6 z-10 rounded-full bg-black/50 p-2 text-white backdrop-blur transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+        onClick={closePlayer}
+        className="absolute right-4 top-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:text-[#FF0055] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:right-6 md:top-6"
         aria-label="Đóng trình phát"
       >
         <X className="h-8 w-8" />
@@ -3059,8 +3232,9 @@ function PlayerModal({
         ) : null}
 
         {error ? (
-          <div className="max-w-md rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-center text-sm text-[#F4C7D4]">
-            Không thể tải nguồn phát. Vui lòng thử lại sau.
+          <div role="alert" className="state-panel state-panel-error max-w-md rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-center text-sm text-[#F4C7D4]">
+            <p>Không thể tải nguồn phát. Vui lòng thử lại.</p>
+            <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
         ) : null}
 
@@ -3122,9 +3296,11 @@ function PlayerModal({
                 {movie ? metaParts(movie).join(" / ") : "Nguồn phát đang tải"}
               </p>
             </div>
-            <div className="hidden text-sm font-semibold text-[#00F0FF]">
-              {episodes.length ? formatEpisodeGroupSummary(episodes) : ""}
-            </div>
+            {episodes.length ? (
+              <p className="text-sm font-semibold text-[#00F0FF]">
+                {formatEpisodeGroupSummary(episodes)}
+              </p>
+            ) : null}
           </div>
 
           {episodes.length ? (
@@ -3134,37 +3310,6 @@ function PlayerModal({
               onSelect={setSelectedUrl}
               className="mt-8"
             />
-          ) : null}
-
-          {false && episodes.length ? (
-            <div className="hidden">
-              {episodes.map((episode, index) => {
-                const url = getEpisodeUrl(episode);
-                const active = url && url === embedUrl;
-
-                return (
-                  <button
-                    key={`${episode.serverName}-${episode.slug ?? index}`}
-                    type="button"
-                    onClick={() => url && setSelectedUrl(url)}
-                    disabled={!url}
-                    className={cn(
-                      "min-h-12 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:cursor-not-allowed disabled:opacity-40",
-                      active
-                        ? "border-[#00F0FF] bg-[#00F0FF]/15 text-white"
-                        : "border-white/10 bg-white/[0.04] text-[#D4D4D8] hover:border-white/25 hover:bg-white/10",
-                    )}
-                  >
-                    <span className="line-clamp-1">
-                      {episode.name ?? episode.filename ?? `Tập ${index + 1}`}
-                    </span>
-                    <span className="mt-1 block text-xs font-medium text-[#A1A1AA]">
-                      {episode.serverName}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
           ) : null}
         </div>
       </div>
