@@ -20,6 +20,9 @@ tailwind.config.d.ts
 # Tooling / local agent files
 .agents/
 .codex/
+.git/
+.impeccable/
+.claude/
 
 # Logs
 *.log
