@@ -17,7 +17,7 @@ import {
   useReducedMotion,
   type Variants,
 } from "framer-motion";
-import useSWR from "swr";
+import useSWR, { mutate as mutateSWR } from "swr";
 import { cn } from "@/lib/utils";
 import {
   useEffect,
@@ -25,7 +25,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -34,14 +34,40 @@ const API_ROOT = "/nguonc-api";
 const IMDB_API_ROOT = "/imdb-api";
 const IMDB_LOOKUP_ROOT = "/imdb-lookup-api";
 const PAGE_TITLE = "FuuCine | Rạp phim tại nhà";
-const DISCLAIMER_STORAGE_KEY = "fuucine_demo_disclaimer_acknowledged";
+const ENTRY_NOTICE_STORAGE_KEY = "fuucine_entry_notice_dismissed_v2";
+const PLAYBACK_DISCLOSURE_STORAGE_KEY = "fuucine_playback_disclosure_acknowledged_v2";
+const IMDB_BATCH_SIZE = 6;
+
+function readStorageFlag(key: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeStorageFlag(key: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(key, "true");
+  } catch {
+    // Storage can be unavailable in privacy-restricted contexts; the flow still works.
+  }
+}
 
 const PLACEHOLDER_IMAGE = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900">
   <rect width="600" height="900" fill="#121216"/>
   <rect x="30" y="30" width="540" height="840" rx="20" fill="#181820" stroke="#2A2A32"/>
   <text x="300" y="430" text-anchor="middle" fill="#A1A1AA" font-family="Be Vietnam Pro, Arial, sans-serif" font-size="34" font-weight="700">FuuCine</text>
-  <text x="300" y="480" text-anchor="middle" fill="#52525B" font-family="Be Vietnam Pro, Arial, sans-serif" font-size="22">Poster unavailable</text>
+  <text x="300" y="480" text-anchor="middle" fill="#52525B" font-family="Be Vietnam Pro, Arial, sans-serif" font-size="22">Chưa có áp phích</text>
 </svg>
 `)}`;
 
@@ -276,11 +302,11 @@ const rows: RowConfig[] = [
 ];
 
 const navItems = [
-  { label: "Trang Chủ", href: "#home" },
-  { label: "Lọc Phim", href: "#loc-phim" },
-  { label: "Phim Mới", href: "#phim-moi-nhat" },
-  { label: "Phim Lẻ", href: "#phim-le" },
-  { label: "Phim Bộ", href: "#phim-bo" },
+  { label: "Trang chủ", href: "#home" },
+  { label: "Lọc phim", href: "#loc-phim" },
+  { label: "Phim mới", href: "#phim-moi-nhat" },
+  { label: "Phim lẻ", href: "#phim-le" },
+  { label: "Phim bộ", href: "#phim-bo" },
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -382,11 +408,23 @@ function getItems(payload?: ApiListResponse) {
     payload?.data?.items,
     payload?.data?.movies,
   ];
-  const items = collections.flatMap((collection) =>
-    unwrapCollection(collection),
-  );
+  const films = new Map<string, FilmSummary>();
 
-  return items.filter((item) => item.slug);
+  for (const collection of collections) {
+    for (const item of unwrapCollection(collection)) {
+      if (!isRecord(item) || typeof item.slug !== "string") {
+        continue;
+      }
+
+      const slug = item.slug.trim();
+      const key = slug.toLowerCase();
+      if (slug && !films.has(key)) {
+        films.set(key, { ...item, slug });
+      }
+    }
+  }
+
+  return Array.from(films.values());
 }
 
 function getMovie(payload?: ApiDetailResponse) {
@@ -436,8 +474,28 @@ function getFilmYear(film?: FilmSummary | FilmDetail) {
 
 function getKnownImdbId(film?: FilmSummary | FilmDetail) {
   const raw = film?.imdb_id ?? film?.imdbId ?? film?.imdb;
-  const match = typeof raw === "string" ? raw.match(/tt\d+/) : null;
-  return match?.[0];
+  const match = typeof raw === "string" ? raw.match(/tt\d+/i) : null;
+  return match?.[0]?.toLowerCase();
+}
+
+function imdbRatingKey(film?: FilmSummary | FilmDetail) {
+  if (!film) {
+    return null;
+  }
+
+  const knownId = getKnownImdbId(film);
+  if (knownId) {
+    return ["imdb-rating", knownId] as const;
+  }
+
+  const identity = film.slug ?? film.id ?? filmTitle(film);
+  return [
+    "imdb-rating",
+    String(identity),
+    normalizeTitle(film.name),
+    normalizeTitle(film.original_name),
+    getFilmYear(film) ?? "",
+  ] as const;
 }
 
 function getImdbSearchTitles(payload: ImdbSearchResponse) {
@@ -464,7 +522,7 @@ function pickImdbTitle(
   const originalTitle = normalizeTitle(film.original_name);
   const year = getFilmYear(film);
 
-  return titles
+  const match = titles
     .filter((item) => getImdbTitleId(item))
     .map((item) => {
       const itemTitle = normalizeTitle(
@@ -497,7 +555,9 @@ function pickImdbTitle(
 
       return { item, score };
     })
-    .sort((a, b) => b.score - a.score)[0]?.item;
+    .sort((a, b) => b.score - a.score)[0];
+
+  return match && match.score >= 5 ? match.item : undefined;
 }
 
 function getImdbTitleId(title?: ImdbSearchTitle | ImdbLookupTitle) {
@@ -505,7 +565,10 @@ function getImdbTitleId(title?: ImdbSearchTitle | ImdbLookupTitle) {
     return undefined;
   }
 
-  return isImdbLookupTitle(title) ? title["#IMDB_ID"] : title.id ?? title.titleId;
+  const id = isImdbLookupTitle(title)
+    ? title["#IMDB_ID"]
+    : title.id ?? title.titleId;
+  return typeof id === "string" && /^tt\d+$/i.test(id) ? id.toLowerCase() : undefined;
 }
 
 async function findImdbId(film: FilmSummary | FilmDetail) {
@@ -554,7 +617,7 @@ async function fetchImdbRating(film: FilmSummary | FilmDetail) {
     );
     const value = detail.rating?.aggregateRating;
 
-    if (typeof value !== "number") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
       return null;
     }
 
@@ -568,19 +631,49 @@ async function fetchImdbRating(film: FilmSummary | FilmDetail) {
   }
 }
 
-function useImdbRating(film?: FilmSummary | FilmDetail) {
-  const title = filmTitle(film);
-  const key = film?.slug || film?.id || title;
+async function fetchAndCacheImdbRating(film: FilmSummary) {
+  const rating = await fetchImdbRating(film);
+  const key = imdbRatingKey(film);
+
+  if (key) {
+    void mutateSWR(key, rating, false);
+  }
+
+  return rating;
+}
+
+function useImdbRating(
+  film?: FilmSummary | FilmDetail,
+  enabled = true,
+) {
+  const key = enabled && film && filmTitle(film) !== "FuuCine"
+    ? imdbRatingKey(film)
+    : null;
 
   return useSWR<ImdbRating | null>(
-    film && title !== "FuuCine" ? ["imdb-rating", key, film.original_name] : null,
+    key,
     () => (film ? fetchImdbRating(film) : Promise.resolve(null)),
     {
       dedupingInterval: 24 * 60 * 60 * 1000,
       revalidateOnFocus: false,
+      revalidateOnReconnect: false,
       shouldRetryOnError: false,
     },
   );
+}
+
+function waitForBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  worker: (item: T) => Promise<R>,
+) {
+  return (async () => {
+    const results: R[] = [];
+    for (let index = 0; index < items.length; index += batchSize) {
+      results.push(...(await Promise.all(items.slice(index, index + batchSize).map(worker))));
+    }
+    return results;
+  })();
 }
 
 function getEpisodeSource(serverName: string) {
@@ -743,27 +836,21 @@ function browseResultsKey(filters: BrowseFilters) {
 }
 
 async function fetchEndpointGroup(group: string[]) {
-  let lastError: unknown;
   const collected = new Map<string, FilmSummary>();
 
   for (const url of group) {
     for (let page = 1; page <= 12; page += 1) {
-      try {
-        const items = getItems(
-          await fetcher<ApiListResponse>(apiUrl(pagedEndpoint(url, page))),
-        );
+      const items = getItems(
+        await fetcher<ApiListResponse>(apiUrl(pagedEndpoint(url, page))),
+      );
 
-        for (const item of items) {
-          if (item.slug) {
-            collected.set(item.slug, item);
-          }
+      for (const item of items) {
+        if (item.slug) {
+          collected.set(item.slug, item);
         }
+      }
 
-        if (items.length === 0) {
-          break;
-        }
-      } catch (error) {
-        lastError = error;
+      if (items.length === 0) {
         break;
       }
     }
@@ -773,9 +860,7 @@ async function fetchEndpointGroup(group: string[]) {
     return Array.from(collected.values());
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("All NguonC list endpoints failed");
+  throw new Error("Nguồn dữ liệu bộ lọc không có phim");
 }
 
 async function sortByImdb(films: FilmSummary[], imdbSort: BrowseFilters["imdbSort"]) {
@@ -783,12 +868,14 @@ async function sortByImdb(films: FilmSummary[], imdbSort: BrowseFilters["imdbSor
     return films;
   }
 
-  const ratedFilms = await Promise.all(
-    films.map(async (film, index) => ({
+  const ratedFilms = await waitForBatches(
+    films.map((film, index) => ({ film, index })),
+    IMDB_BATCH_SIZE,
+    async ({ film, index }) => ({
       film,
       index,
-      rating: await fetchImdbRating(film),
-    })),
+      rating: await fetchAndCacheImdbRating(film),
+    }),
   );
 
   return ratedFilms
@@ -844,10 +931,7 @@ async function fetchBrowseResults(key: string): Promise<FilmSummary[]> {
     .split("|")
     .filter(Boolean)
     .map((group) => group.split(",").filter(Boolean));
-  const settled = await Promise.allSettled(groups.map(fetchEndpointGroup));
-  const lists = settled.flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : [],
-  );
+  const lists = await Promise.all(groups.map(fetchEndpointGroup));
 
   if (!lists.length) {
     throw new Error("Không thể tải dữ liệu bộ lọc");
@@ -971,6 +1055,9 @@ function useDialogFocus<T extends HTMLElement, U extends HTMLElement>({
   initialFocusRef: RefObject<U>;
   onClose: () => void;
 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     const dialog = dialogRef.current;
     const frame = window.requestAnimationFrame(() => initialFocusRef.current?.focus());
@@ -978,7 +1065,7 @@ function useDialogFocus<T extends HTMLElement, U extends HTMLElement>({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -988,7 +1075,12 @@ function useDialogFocus<T extends HTMLElement, U extends HTMLElement>({
 
       const focusable = Array.from(
         dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      ).filter((element) => !element.hasAttribute("inert"));
+      ).filter(
+        (element) =>
+          !element.hasAttribute("inert") &&
+          !element.hasAttribute("hidden") &&
+          element.getClientRects().length > 0,
+      );
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
 
@@ -1009,7 +1101,7 @@ function useDialogFocus<T extends HTMLElement, U extends HTMLElement>({
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [dialogRef, initialFocusRef, onClose]);
+  }, [dialogRef, initialFocusRef]);
 }
 
 function RetryButton({
@@ -1042,6 +1134,7 @@ type PlayerSelection = {
   episodeUrl?: string;
   morphId?: string;
   returnTo: DetailsSelection;
+  restoreDetails?: boolean;
 };
 
 export default function FuuCine_Root() {
@@ -1050,18 +1143,16 @@ export default function FuuCine_Root() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailsSelection, setDetailsSelection] = useState<DetailsSelection | null>(null);
   const [playerSelection, setPlayerSelection] = useState<PlayerSelection | null>(null);
-  const [disclaimerOpen, setDisclaimerOpen] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(DISCLAIMER_STORAGE_KEY) !== "true";
-  });
+  const [pendingPlayerSelection, setPendingPlayerSelection] =
+    useState<PlayerSelection | null>(null);
+  const [entryNoticeOpen, setEntryNoticeOpen] = useState(() =>
+    typeof window !== "undefined" && !readStorageFlag(ENTRY_NOTICE_STORAGE_KEY),
+  );
+  const [playbackDisclosureOpen, setPlaybackDisclosureOpen] = useState(false);
   const [ambientImage, setAmbientImage] = useState(PLACEHOLDER_IMAGE);
   const [draftFilters, setDraftFilters] =
     useState<BrowseFilters>(defaultBrowseFilters);
-  const [appliedFilters, setAppliedFilters] =
-    useState<BrowseFilters>(defaultBrowseFilters);
+  const [appliedFilters, setAppliedFilters] = useState<BrowseFilters | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroPaused, setHeroPaused] = useState(false);
@@ -1078,13 +1169,15 @@ export default function FuuCine_Root() {
   const heroDeckFilms = heroFilm
     ? [
         heroFilm,
-        ...heroFilms.filter((film) => film.slug !== heroFilm.slug),
+        ...heroFilms.filter(
+          (film) => film.slug?.toLowerCase() !== heroFilm.slug?.toLowerCase(),
+        ),
       ].slice(0, 5)
     : heroFilms;
   const heroImage = getPoster(heroFilm);
   const overlayOpen =
     searchOpen ||
-    disclaimerOpen ||
+    playbackDisclosureOpen ||
     Boolean(detailsSelection) ||
     Boolean(playerSelection);
 
@@ -1153,10 +1246,22 @@ export default function FuuCine_Root() {
     slug,
     episodeUrl,
     morphId,
+    restoreDetails = false,
     returnTo = { slug, morphId, selectedEpisodeUrl: episodeUrl },
-  }: Omit<PlayerSelection, "returnTo"> & { returnTo?: DetailsSelection }) => {
+  }: Omit<PlayerSelection, "returnTo" | "restoreDetails"> & {
+    returnTo?: DetailsSelection;
+    restoreDetails?: boolean;
+  }) => {
+    const selection = { slug, episodeUrl, morphId, returnTo, restoreDetails };
     openOverlay();
-    setPlayerSelection({ slug, episodeUrl, morphId, returnTo });
+
+    if (readStorageFlag(PLAYBACK_DISCLOSURE_STORAGE_KEY)) {
+      setPlayerSelection(selection);
+      return;
+    }
+
+    setPendingPlayerSelection(selection);
+    setPlaybackDisclosureOpen(true);
   };
   const closeDetails = () => {
     setDetailsSelection(null);
@@ -1167,11 +1272,40 @@ export default function FuuCine_Root() {
       return;
     }
 
+    const selection = playerSelection;
     setPlayerSelection(null);
-    setDetailsSelection({
-      ...playerSelection.returnTo,
-      selectedEpisodeUrl: episodeUrl ?? playerSelection.returnTo.selectedEpisodeUrl,
-    });
+
+    if (selection.restoreDetails) {
+      setDetailsSelection({
+        ...selection.returnTo,
+        selectedEpisodeUrl: episodeUrl ?? selection.returnTo.selectedEpisodeUrl,
+      });
+      return;
+    }
+
+    restoreOpener();
+  };
+  const closePlaybackDisclosure = () => {
+    const selection = pendingPlayerSelection;
+    setPendingPlayerSelection(null);
+    setPlaybackDisclosureOpen(false);
+
+    if (selection?.restoreDetails) {
+      setDetailsSelection(selection.returnTo);
+      return;
+    }
+
+    restoreOpener();
+  };
+  const continueToPlayback = () => {
+    if (!pendingPlayerSelection) {
+      return;
+    }
+
+    writeStorageFlag(PLAYBACK_DISCLOSURE_STORAGE_KEY);
+    setPlayerSelection(pendingPlayerSelection);
+    setPendingPlayerSelection(null);
+    setPlaybackDisclosureOpen(false);
   };
   const handlePreviewEnd = () => setAmbientImage(heroImage || PLACEHOLDER_IMAGE);
   const handleHeroSelect = (slug?: string) => {
@@ -1184,12 +1318,23 @@ export default function FuuCine_Root() {
       setHeroIndex(nextIndex);
     }
   };
+  const scrollBehavior = prefersReducedMotion ? "auto" : "smooth";
   const handleBrowse = () => {
-    setAppliedFilters(draftFilters);
+    setAppliedFilters({ ...draftFilters });
     window.setTimeout(() => {
       document
         .getElementById("duyet-phim")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        ?.scrollIntoView({ behavior: scrollBehavior, block: "start" });
+    }, 50);
+  };
+  const resetBrowse = () => {
+    setDraftFilters(defaultBrowseFilters);
+    setAppliedFilters(null);
+    setBrowseLoading(false);
+    window.setTimeout(() => {
+      document
+        .getElementById("loc-phim")
+        ?.scrollIntoView({ behavior: scrollBehavior, block: "start" });
     }, 50);
   };
 
@@ -1203,10 +1348,10 @@ export default function FuuCine_Root() {
           Bỏ qua điều hướng
         </a>
         <AmbientLayer image={ambientImage} />
-        <CinematicAtmosphere />
         <div className="theme-readable-mask absolute inset-0 z-10 pointer-events-none" />
 
         <Navigation
+          browseActive={Boolean(appliedFilters)}
           onOpenSearch={() => {
             openOverlay();
             setSearchOpen(true);
@@ -1247,44 +1392,47 @@ export default function FuuCine_Root() {
             }
           />
 
-        <BrowseFilterPanel
-          filters={draftFilters}
-          isLoading={browseLoading}
-          onChange={setDraftFilters}
-          onBrowse={handleBrowse}
-        />
-
-          <BrowseResults
-            filters={appliedFilters}
-            onSelect={(slug, morphId) => openDetails({ slug, morphId })}
-            onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
-            onPreview={setAmbientImage}
-            onPreviewEnd={handlePreviewEnd}
-            onLoadingChange={setBrowseLoading}
+          <BrowseFilterPanel
+            filters={draftFilters}
+            appliedFilters={appliedFilters}
+            isLoading={browseLoading}
+            onChange={setDraftFilters}
+            onBrowse={handleBrowse}
+            onReset={resetBrowse}
           />
 
-          <section className="pb-16 pt-2 md:pt-4" aria-label="Danh sách phim">
-            {rows.map((row) => (
-              <MovieRow
-                key={row.id}
-                row={row}
-                onSelect={(slug, morphId) => openDetails({ slug, morphId })}
-                onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
-                onPreview={setAmbientImage}
-                onPreviewEnd={handlePreviewEnd}
-              />
-            ))}
-          </section>
+          {appliedFilters ? (
+            <BrowseResults
+              filters={appliedFilters}
+              onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+              onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
+              onPreview={setAmbientImage}
+              onPreviewEnd={handlePreviewEnd}
+              onLoadingChange={setBrowseLoading}
+            />
+          ) : (
+            <section className="pb-16 pt-2 md:pt-4" aria-label="Danh sách phim tuyển chọn">
+              {rows.map((row) => (
+                <MovieRow
+                  key={row.id}
+                  row={row}
+                  onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+                  onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
+                  onPreview={setAmbientImage}
+                  onPreviewEnd={handlePreviewEnd}
+                />
+              ))}
+            </section>
+          )}
         </main>
       </div>
 
       <AnimatePresence>
-        {disclaimerOpen ? (
-          <DisclaimerModal
-            onClose={() => {
-              window.localStorage.setItem(DISCLAIMER_STORAGE_KEY, "true");
-              setDisclaimerOpen(false);
-              restoreOpener();
+        {entryNoticeOpen ? (
+          <EntryNotice
+            onDismiss={() => {
+              writeStorageFlag(ENTRY_NOTICE_STORAGE_KEY);
+              setEntryNoticeOpen(false);
             }}
           />
         ) : null}
@@ -1329,8 +1477,18 @@ export default function FuuCine_Root() {
                 episodeUrl,
                 morphId: detailsSelection.morphId,
                 returnTo,
+                restoreDetails: true,
               });
             }}
+          />
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {playbackDisclosureOpen ? (
+          <PlaybackDisclosureDialog
+            onClose={closePlaybackDisclosure}
+            onContinue={continueToPlayback}
           />
         ) : null}
       </AnimatePresence>
@@ -1349,10 +1507,51 @@ export default function FuuCine_Root() {
   );
 }
 
-function DisclaimerModal({ onClose }: { onClose: () => void }) {
+function EntryNotice({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <motion.aside
+      className="entry-notice fixed inset-x-4 bottom-4 z-[45] mx-auto flex max-w-3xl flex-col gap-3 rounded-lg border border-[#00F0FF]/20 bg-[#0B0B10]/95 p-4 text-sm text-[#D4D4D8] shadow-[0_20px_60px_rgba(0,0,0,0.46)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 18 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      aria-label="Thông báo về nguồn nội dung"
+    >
+      <div>
+        <p>
+          FuuCine là dự án trình diễn; dữ liệu và nguồn phát đến từ bên thứ ba.
+        </p>
+        <details className="mt-2">
+          <summary className="theme-focus w-fit cursor-pointer font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]">
+            Xem chi tiết
+          </summary>
+          <p className="mt-2 max-w-2xl">
+            FuuCine không lưu trữ nội dung, không kiểm soát khả dụng, quảng cáo,
+            pop-up hoặc nội dung nhúng từ NguonC và các dịch vụ liên quan đến IMDb.
+          </p>
+        </details>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="theme-focus inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-white/15 px-4 font-bold text-white transition-colors hover:border-[#00F0FF]/55 hover:text-[#7AF7FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+      >
+        Đã hiểu
+      </button>
+    </motion.aside>
+  );
+}
+
+function PlaybackDisclosureDialog({
+  onClose,
+  onContinue,
+}: {
+  onClose: () => void;
+  onContinue: () => void;
+}) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  useDialogFocus({ dialogRef, initialFocusRef: confirmRef, onClose });
+  const continueRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus({ dialogRef, initialFocusRef: continueRef, onClose });
 
   return (
     <motion.div
@@ -1365,8 +1564,8 @@ function DisclaimerModal({ onClose }: { onClose: () => void }) {
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="disclaimer-title"
-      aria-describedby="disclaimer-description"
+      aria-labelledby="playback-disclosure-title"
+      aria-describedby="playback-disclosure-description"
     >
       <motion.div
         className="disclaimer-card relative w-full max-w-2xl overflow-hidden rounded-lg border border-white/10 bg-[#0B0B10]/92 p-5 shadow-[0_30px_100px_rgba(0,0,0,0.72)] md:p-7"
@@ -1381,56 +1580,46 @@ function DisclaimerModal({ onClose }: { onClose: () => void }) {
               <ShieldAlert className="h-6 w-6" />
             </span>
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#7AF7FF]">
-                Thông báo minh bạch
+              <p className="accent-copy text-xs font-extrabold uppercase tracking-[0.18em]">
+                Nguồn phát bên thứ ba
               </p>
               <h2
-                id="disclaimer-title"
+                id="playback-disclosure-title"
                 className="mt-2 font-display text-2xl font-extrabold leading-[1.2] tracking-[-0.015em] text-white md:text-3xl"
               >
-                FuuCine là project demo giao diện
+                Trước khi tiếp tục
               </h2>
             </div>
           </div>
 
-          <div id="disclaimer-description" className="space-y-3 text-sm leading-7 text-[#D4D4D8] md:text-base">
+          <div id="playback-disclosure-description" className="space-y-3 text-sm leading-7 text-[#D4D4D8] md:text-base">
             <p>
-              FuuCine là project demo được thực hiện bởi{" "}
-              <a
-                href="https://github.com/epauengi"
-                target="_blank"
-                rel="noreferrer"
-                className="font-bold text-[#7AF7FF] underline decoration-[#00F0FF]/40 underline-offset-4 hover:text-white"
-              >
-                github.com/epauengi
-              </a>
-              . Project này chỉ tập trung vào thiết kế, trải nghiệm web và cách
-              tích hợp dữ liệu phía client.
+              FuuCine không phải dịch vụ phát trực tuyến và không lưu trữ nội dung.
+              Metadata, áp phích, tập phim, liên kết phát và nội dung nhúng đến từ
+              NguonC cùng các dịch vụ liên quan đến IMDb.
             </p>
             <p>
-              Các API, hình ảnh, thông tin phim, tập phim, liên kết phát và dữ
-              liệu liên quan được lấy từ các nguồn/bên thứ ba như NguonC và IMDb.
-              Tôi không sở hữu, lưu trữ, kiểm duyệt hoặc kiểm soát nội dung phim,
-              quảng cáo, pop-up hay bất kỳ nội dung nào được chèn từ các nguồn đó.
-            </p>
-            <p>
-              Nếu một nguồn dữ liệu bên thứ ba hiển thị quảng cáo hoặc nội dung
-              không phù hợp, điều đó không đại diện cho FuuCine hoặc tác giả
-              project. Người dùng vui lòng cân nhắc trước khi tiếp tục sử dụng.
+              FuuCine và tác giả không sở hữu hoặc kiểm soát tính khả dụng, quảng
+              cáo, pop-up hay hành vi của nội dung được nhúng. Hãy cân nhắc trước
+              khi mở nguồn phát.
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-semibold text-[#A1A1AA]">
-              Bấm xác nhận để tiếp tục vào trang.
-            </p>
+          <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-end">
             <button
-              ref={confirmRef}
               type="button"
               onClick={onClose}
+              className="theme-focus inline-flex h-12 items-center justify-center rounded-full border border-white/15 px-6 font-display text-sm font-extrabold text-white transition-colors hover:border-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            >
+              Quay lại
+            </button>
+            <button
+              ref={continueRef}
+              type="button"
+              onClick={onContinue}
               className="inline-flex h-12 items-center justify-center rounded-full bg-white px-6 font-display text-sm font-extrabold text-[#030305] transition-transform hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] active:scale-[0.98]"
             >
-              Tôi đã hiểu
+              Tiếp tục đến nguồn phát
             </button>
           </div>
         </div>
@@ -1464,27 +1653,32 @@ function AmbientLayer({ image }: { image: string }) {
   );
 }
 
-function CinematicAtmosphere() {
-  return (
-    <div className="cinematic-atmosphere fixed inset-0 z-[12] pointer-events-none overflow-hidden">
-      <div className="cinema-beam cinema-beam-a" />
-      <div className="cinema-beam cinema-beam-b" />
-      <div className="premiere-scanline" />
-      <div className="lens-iris" />
-    </div>
-  );
-}
-
 function Navigation({
+  browseActive,
   onOpenSearch,
   onOpenMenuSearch,
 }: {
+  browseActive: boolean;
   onOpenSearch: () => void;
   onOpenMenuSearch: () => void;
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeHref, setActiveHref] = useState("#home");
+  const menuToggleRef = useRef<HTMLButtonElement>(null);
+  const visibleNavItems = useMemo(
+    () =>
+      browseActive
+        ? navItems.filter(
+            (item) => item.href === "#home" || item.href === "#loc-phim",
+          )
+        : navItems,
+    [browseActive],
+  );
+  const observedNavItems = useMemo(
+    () => (browseActive ? [...visibleNavItems, { href: "#duyet-phim" }] : visibleNavItems),
+    [browseActive, visibleNavItems],
+  );
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -1494,7 +1688,7 @@ function Navigation({
   }, []);
 
   useEffect(() => {
-    const targets = navItems
+    const targets = observedNavItems
       .map(({ href }) => document.querySelector<HTMLElement>(href))
       .filter((target): target is HTMLElement => Boolean(target));
     const observer = new IntersectionObserver(
@@ -1511,7 +1705,35 @@ function Navigation({
 
     targets.forEach((target) => observer.observe(target));
     return () => observer.disconnect();
-  }, []);
+  }, [observedNavItems]);
+
+  useEffect(() => {
+    if (!visibleNavItems.some((item) => item.href === activeHref)) {
+      setActiveHref(browseActive ? "#loc-phim" : "#home");
+    }
+  }, [activeHref, browseActive, visibleNavItems]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        window.requestAnimationFrame(() => menuToggleRef.current?.focus());
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
+  const closeMenu = (restoreFocus = true) => {
+    setMenuOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => menuToggleRef.current?.focus());
+    }
+  };
 
   return (
     <header
@@ -1526,21 +1748,21 @@ function Navigation({
         <a
           href="#home"
           className="brand-mark font-display text-2xl font-extrabold tracking-[-0.02em] text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
-          aria-label="FuuCine home"
+          aria-label="Trang chủ FuuCine"
         >
           FUU<span className="text-[#00F0FF]">CINE</span>
         </a>
 
         <nav
           className="hidden items-center gap-8 text-sm font-medium text-[#A1A1AA] md:flex"
-          aria-label="Primary"
+          aria-label="Điều hướng chính"
         >
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <a
-              key={item.href}
+              key={item.label}
               href={item.href}
               onClick={() => setActiveHref(item.href)}
-              aria-current={activeHref === item.href ? "page" : undefined}
+              aria-current={activeHref === item.href ? "location" : undefined}
               className={cn(
                 "nav-link transition-colors hover:text-white focus:outline-none focus-visible:text-white",
                 activeHref === item.href
@@ -1564,35 +1786,39 @@ function Navigation({
             <Search className="h-5 w-5" />
           </button>
           <button
+            ref={menuToggleRef}
             type="button"
             onClick={() => setMenuOpen((value) => !value)}
             className="nav-icon-button inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] md:hidden"
+            aria-controls="mobile-navigation"
             aria-expanded={menuOpen}
-            aria-label="Mở menu"
+            aria-label={menuOpen ? "Đóng menu" : "Mở menu"}
           >
-            <Menu className="h-6 w-6" />
+            {menuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
       </div>
 
       <AnimatePresence>
         {menuOpen ? (
-          <motion.div
+          <motion.nav
+            id="mobile-navigation"
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
             className="mobile-menu-surface mx-6 mt-4 rounded-lg border border-white/10 bg-[#0F0F14]/95 p-3 shadow-lg shadow-black/30 md:hidden"
+            aria-label="Điều hướng di động"
           >
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <a
-                key={item.href}
+                key={item.label}
                 href={item.href}
                 onClick={() => {
                   setActiveHref(item.href);
-                  setMenuOpen(false);
+                  closeMenu();
                 }}
-                aria-current={activeHref === item.href ? "page" : undefined}
+                aria-current={activeHref === item.href ? "location" : undefined}
                 className="block min-h-11 rounded-md px-3 py-3 text-sm font-semibold text-[#D4D4D8] transition-colors hover:bg-white/5 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
               >
                 {item.label}
@@ -1605,7 +1831,8 @@ function Navigation({
             <button
               type="button"
               onClick={() => {
-                setMenuOpen(false);
+                menuToggleRef.current?.focus();
+                closeMenu(false);
                 onOpenMenuSearch();
               }}
               className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-3 text-left text-sm font-semibold text-[#00F0FF] transition-colors hover:bg-[#00F0FF]/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
@@ -1613,7 +1840,7 @@ function Navigation({
               <Search className="h-4 w-4" />
               Tìm kiếm
             </button>
-          </motion.div>
+          </motion.nav>
         ) : null}
       </AnimatePresence>
     </header>
@@ -1665,7 +1892,7 @@ function HeroSection({
     >
       {film ? (
         <motion.img
-          key={film.slug ?? getPoster(film)}
+          key={`hero-image-${film.slug ?? getPoster(film)}`}
           src={getPoster(film)}
           alt=""
           className="absolute inset-0 z-0 h-full w-full object-cover opacity-42 saturate-[1.15]"
@@ -1690,7 +1917,7 @@ function HeroSection({
         ) : error ? (
           <div
             role="alert"
-            className="state-panel state-panel-error max-w-lg rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold text-[#F4C7D4]"
+            className="state-panel state-panel-error error-copy max-w-lg rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold"
           >
             <p>Không thể tải phim mới. Vui lòng thử lại.</p>
             <RetryButton onRetry={onRetry} isRetrying={isRetrying} />
@@ -1712,7 +1939,7 @@ function HeroSection({
               className="flex flex-wrap items-center gap-3"
             >
               <span className="rounded-md border border-[#00F0FF]/[0.35] bg-[#00F0FF]/[0.12] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-[#7AF7FF] shadow-[0_0_24px_rgba(0,240,255,0.12)]">
-                Phim Mới
+                Phim mới
               </span>
               {film?.quality ? (
                 <span className="rounded-md border border-white/[0.12] bg-white/[0.08] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-white">
@@ -1724,7 +1951,6 @@ function HeroSection({
             </motion.div>
 
             <motion.h1
-              key={film?.slug ?? filmTitle(film)}
               initial={reduceMotion ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.3 }}
@@ -1752,30 +1978,12 @@ function HeroSection({
                   </span>
                 ))
               ) : (
-                <span>Đang cập nhật metadata</span>
+                <span>Đang cập nhật thông tin</span>
               )}
-            </motion.div>
-
-            <motion.div
-              initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, delay: 0.44 }}
-              className="hero-signal-rail"
-              aria-hidden="true"
-            >
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
             </motion.div>
 
             {autoplaying ? (
               <div
-                key={film?.slug ?? filmTitle(film)}
                 className="hero-autoplay-meter"
                 aria-hidden="true"
               >
@@ -1829,7 +2037,7 @@ function HeroSection({
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#030305] text-white transition-colors group-hover:bg-[#00F0FF] group-hover:text-[#030305]">
                   <Play className="ml-0.5 h-4 w-4 fill-current" />
                 </span>
-                Xem Ngay
+                Xem ngay
               </button>
               <button
                 type="button"
@@ -1838,7 +2046,7 @@ function HeroSection({
                 className="glass-panel flex min-w-0 items-center justify-center gap-2 rounded-full px-4 py-4 font-display text-sm font-bold text-white transition-colors hover:bg-white/10 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] disabled:pointer-events-none disabled:opacity-50 sm:px-8 sm:text-base"
               >
                 <Info className="h-5 w-5" />
-                Chi Tiết
+                Chi tiết
               </button>
             </motion.div>
           </motion.div>
@@ -1883,11 +2091,11 @@ function HeroTimeline({
 
         return (
           <button
-            key={`${item.slug ?? filmTitle(item)}-${index}`}
+            key={`hero-timeline-${index}-${item.slug ?? filmTitle(item)}`}
             type="button"
             onClick={() => onSelect(item.slug)}
             className={cn(
-              "hero-timeline-button group flex min-w-[130px] items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
+              "hero-timeline-button group flex min-h-11 w-[130px] shrink-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]",
               active
                 ? "border-[#00F0FF]/45 bg-[#00F0FF]/12 text-white"
                 : "border-white/10 bg-white/[0.035] text-[#A1A1AA] hover:border-white/20 hover:bg-white/[0.07] hover:text-white",
@@ -1933,7 +2141,7 @@ function HeroPosterDeck({
 
           return (
             <motion.button
-              key={`${item.slug ?? filmTitle(item)}-${index}`}
+              key={`hero-deck-card-${index}-${item.slug ?? filmTitle(item)}`}
               type="button"
               onClick={() => onSelect(item.slug)}
               className={cn(
@@ -1962,14 +2170,14 @@ function HeroPosterDeck({
         <div className="glass-panel absolute left-10 top-[410px] z-40 w-[360px] rounded-lg p-4">
           <div className="mb-3 flex items-center justify-between gap-4">
             <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#7AF7FF]">
-              Now tuning
+              Đang chọn
             </span>
             <span className="h-2 w-2 rounded-full bg-[#FF0055] shadow-[0_0_16px_rgba(255,0,85,0.8)]" />
           </div>
           <div className="space-y-2">
             {deck.slice(0, 3).map((item, index) => (
               <div
-                key={`${item.slug ?? filmTitle(item)}-${index}`}
+                key={`hero-deck-list-${index}-${item.slug ?? filmTitle(item)}`}
                 className={cn(
                   "grid grid-cols-[1.5rem_1fr_auto] items-center gap-3 border-t border-white/[0.08] pt-2 first:border-t-0 first:pt-0",
                   (item.slug ?? filmTitle(item)) === activeKey ? "hero-tuning-active" : "",
@@ -2011,14 +2219,16 @@ function ImdbBadge({
   film,
   compact = false,
   className,
+  enabled = true,
 }: {
   film?: FilmSummary | FilmDetail;
   compact?: boolean;
   className?: string;
+  enabled?: boolean;
 }) {
-  const { data } = useImdbRating(film);
+  const { data } = useImdbRating(film, enabled);
 
-  if (!data?.value) {
+  if (typeof data?.value !== "number") {
     return null;
   }
 
@@ -2027,7 +2237,7 @@ function ImdbBadge({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border border-[#F5C518]/30 bg-[#F5C518]/12 font-bold text-[#FFE27A]",
         compact
-          ? "px-2 py-1 text-[0.625rem] tracking-[0.08em]"
+          ? "px-2 py-1 text-xs tracking-[0.08em]"
           : "px-3 py-1.5 text-xs tracking-[0.12em]",
         className,
       )}
@@ -2045,18 +2255,29 @@ function ImdbBadge({
 
 function BrowseFilterPanel({
   filters,
+  appliedFilters,
   isLoading,
   onChange,
   onBrowse,
+  onReset,
 }: {
   filters: BrowseFilters;
+  appliedFilters: BrowseFilters | null;
   isLoading: boolean;
   onChange: (filters: BrowseFilters) => void;
   onBrowse: () => void;
+  onReset: () => void;
 }) {
   const setList = (list: BrowseFilters["list"]) => {
     onChange({ ...filters, list });
   };
+  const filtersDirty = Boolean(
+    appliedFilters &&
+      Object.entries(filters).some(
+        ([key, value]) => value !== appliedFilters[key as keyof BrowseFilters],
+      ),
+  );
+  const appliedLabels = appliedFilters ? browseFilterLabels(appliedFilters) : [];
 
   return (
     <motion.section
@@ -2078,7 +2299,7 @@ function BrowseFilterPanel({
               id="browse-filter-title"
               className="font-display text-xl font-extrabold tracking-[-0.015em] text-white"
             >
-              Lọc Phim
+              Lọc phim
             </h2>
           </div>
 
@@ -2173,12 +2394,32 @@ function BrowseFilterPanel({
           </button>
         </div>
 
-        <div className="filter-chip-row mt-4 flex flex-wrap gap-2">
-          {browseFilterLabels(filters).map((label) => (
-            <span key={label} className="filter-chip">
-              {label}
+        <div className="filter-chip-row mt-4 flex flex-wrap items-center gap-2">
+          {appliedFilters ? (
+            appliedLabels.map((label) => (
+              <span key={label} className="filter-chip">
+                {label}
+              </span>
+            ))
+          ) : (
+            <p className="muted-copy text-xs font-semibold">
+              Chọn bộ lọc rồi duyệt phim.
+            </p>
+          )}
+          {filtersDirty ? (
+            <span className="muted-copy text-xs font-semibold">
+              Bộ lọc chưa áp dụng
             </span>
-          ))}
+          ) : null}
+          {appliedFilters ? (
+            <button
+              type="button"
+              onClick={onReset}
+              className="theme-focus ml-auto inline-flex min-h-11 items-center justify-center rounded-md border border-white/15 px-4 text-sm font-bold text-white transition-colors hover:border-[#00F0FF]/55 hover:text-[#7AF7FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            >
+              Đặt lại
+            </button>
+          ) : null}
         </div>
       </div>
     </motion.section>
@@ -2255,6 +2496,7 @@ function BrowseResults({
 
   useEffect(() => {
     onLoadingChange(isLoading);
+    return () => onLoadingChange(false);
   }, [isLoading, onLoadingChange]);
 
   return (
@@ -2294,13 +2536,13 @@ function BrowseResults({
           transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
         >
           {isLoading
-            ? Array.from({ length: 12 }).map((_, index) => (
+            ? Array.from({ length: pageSize }).map((_, index) => (
                 <MovieCardSkeleton key={index} variant="reel" />
               ))
             : null}
 
           {error ? (
-            <div role="alert" className="state-panel state-panel-error col-span-full w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold text-[#F4C7D4]">
+            <div role="alert" className="state-panel state-panel-error error-copy col-span-full w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm font-semibold">
               <p>Không thể tải danh sách phim. Vui lòng thử lại.</p>
               <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
             </div>
@@ -2314,7 +2556,7 @@ function BrowseResults({
 
           {visibleFilms.map((film, index) => (
             <motion.div
-              key={`${film.slug ?? filmTitle(film)}-${index}`}
+              key={film.slug ?? `${filmTitle(film)}-${index}`}
               className="result-card-motion relative z-10 hover:z-50 focus-within:z-50"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -2460,7 +2702,7 @@ function MovieRow({
         </div>
       </div>
 
-      <div className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto pb-5 pr-6 md:gap-6 md:pr-16">
+      <div className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-5 pr-6 pt-2 md:gap-6 md:pr-16">
         {isLoading ? (
           Array.from({ length: 8 }).map((_, index) => (
             <MovieCardSkeleton key={index} />
@@ -2468,7 +2710,7 @@ function MovieRow({
         ) : null}
 
         {error ? (
-          <div role="alert" className="state-panel state-panel-error min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
+          <div role="alert" className="state-panel state-panel-error error-copy min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm">
             <p>Không thể tải hàng phim này. Vui lòng thử lại.</p>
             <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
@@ -2482,7 +2724,7 @@ function MovieRow({
 
         {films.map((film, index) => (
           <MovieCard
-            key={`${film.slug ?? filmTitle(film)}-${index}`}
+            key={film.slug ?? `${filmTitle(film)}-${index}`}
             film={film}
             morphId={`row-${row.id}-${index}-${film.slug ?? filmTitle(film)}`}
             onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
@@ -2514,66 +2756,75 @@ function MovieCard({
   onPreview: () => void;
   onPreviewEnd: () => void;
 }) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [rotate, setRotate] = useState({ x: 0, y: 0 });
-  const [isHovered, setIsHovered] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
+  const [isEngaged, setIsEngaged] = useState(false);
+  const [ratingEnabled, setRatingEnabled] = useState(false);
 
-  const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
-    if (!cardRef.current) {
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || typeof IntersectionObserver === "undefined") {
+      setRatingEnabled(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setRatingEnabled(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "320px 0px" },
+    );
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
+
+  const beginPreview = () => {
+    setIsEngaged(true);
+    setRatingEnabled(true);
+    onPreview();
+  };
+  const endPreview = () => {
+    setIsEngaged(false);
+    onPreviewEnd();
+  };
+  const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType !== "mouse" || !cardRef.current) {
       return;
     }
 
     const rect = cardRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    cardRef.current.style.setProperty("--card-x", `${x}px`);
-    cardRef.current.style.setProperty("--card-y", `${y}px`);
-    setRotate({
-      x: ((y - centerY) / centerY) * -10,
-      y: ((x - centerX) / centerX) * 10,
-    });
-  };
-
-  const beginPreview = () => {
-    setIsHovered(true);
-    onPreview();
-  };
-  const clearTilt = () => {
-    setIsHovered(false);
-    setRotate({ x: 0, y: 0 });
-    onPreviewEnd();
+    cardRef.current.style.setProperty("--card-x", `${event.clientX - rect.left}px`);
+    cardRef.current.style.setProperty("--card-y", `${event.clientY - rect.top}px`);
   };
 
   return (
     <div className="snap-start">
       <article
         ref={cardRef}
-        onMouseEnter={beginPreview}
-        onFocusCapture={beginPreview}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-            clearTilt();
+        onPointerEnter={beginPreview}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.contains(document.activeElement)) {
+            endPreview();
           }
         }}
-        onMouseLeave={clearTilt}
-        onMouseMove={handleMouseMove}
-        style={{
-          transform: `perspective(1000px) rotateX(${rotate.x}deg) rotateY(${rotate.y}deg) scale(${isHovered ? 1.05 : 1})`,
-          transition: isHovered
-            ? "none"
-            : "transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
+        onPointerMove={handlePointerMove}
+        onFocusCapture={beginPreview}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node) && !event.currentTarget.matches(":hover")) {
+            endPreview();
+          }
         }}
         className={cn(
-          "movie-card-spotlight group relative z-10 aspect-[2/3] w-[160px] shrink-0 rounded-lg bg-white/[0.035] p-px text-left will-change-transform hover:z-30 focus-within:z-30 md:w-[220px]",
+          "movie-card-spotlight group relative z-10 aspect-[2/3] w-[160px] shrink-0 rounded-lg bg-white/[0.035] p-px text-left hover:z-30 focus-within:z-30 md:w-[220px]",
           isActive ? "movie-card-active" : "",
         )}
       >
         <div
           className={cn(
             "absolute -inset-2 rounded-lg bg-[#00F0FF] blur-2xl transition-opacity duration-300",
-            isHovered ? "opacity-28" : "opacity-0",
+            isEngaged ? "opacity-28" : "opacity-0",
           )}
         />
         <motion.img
@@ -2592,23 +2843,27 @@ function MovieCard({
           className="absolute inset-0 z-[3] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
           aria-label={`Xem chi tiết ${filmTitle(film)}`}
         />
-        <div className="pointer-events-none absolute left-2 top-2 z-[4] rounded-md border border-black/25 bg-black/[0.45] px-2 py-1 text-[0.625rem] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+        <div className="pointer-events-none absolute left-2 top-2 z-[4] rounded-md border border-black/25 bg-black/[0.45] px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
           {film.quality ?? "HD"}
         </div>
         <ImdbBadge
           film={film}
           compact
+          enabled={ratingEnabled}
           className="pointer-events-none absolute right-2 top-2 z-[4] bg-black/[0.55] backdrop-blur"
         />
-        <div className="pointer-events-none absolute inset-x-px bottom-px z-[4] rounded-b-lg bg-gradient-to-t from-black via-black/[0.72] to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+        <div
+          className={cn(
+            "movie-card-copy pointer-events-none absolute inset-x-px bottom-px z-[4] rounded-b-lg bg-gradient-to-t from-black via-black/[0.72] to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100",
+            isActive ? "opacity-100" : "",
+          )}
+        >
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white md:text-[0.9375rem]">
             {filmTitle(film)}
           </h3>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="line-clamp-1 text-xs text-[#D4D4D8]">
-              {metaParts(film).slice(0, 2).join(" / ") || "FuuCine"}
-            </p>
-          </div>
+          <p className="mt-2 line-clamp-1 text-xs text-[#D4D4D8]">
+            {metaParts(film).slice(0, 2).join(" / ") || "FuuCine"}
+          </p>
         </div>
         <button
           type="button"
@@ -2670,7 +2925,22 @@ function SearchOverlay({
     : undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultRefs = useRef<Array<HTMLDivElement | null>>([]);
   useDialogFocus({ dialogRef, initialFocusRef: inputRef, onClose });
+
+  useEffect(() => {
+    resultRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  const searchStatus = isLoading
+    ? "Đang tìm kiếm"
+    : error
+      ? "Không thể tìm kiếm lúc này"
+      : shouldSearch
+        ? `${results.length} kết quả${activeFilm ? `; đang chọn ${filmTitle(activeFilm)}` : ""}`
+        : keyword.trim().length === 1
+          ? "Thêm 1 ký tự nữa để bắt đầu."
+          : "Nhập ít nhất 2 ký tự để tìm phim.";
 
   useEffect(() => {
     setActiveIndex(0);
@@ -2695,17 +2965,19 @@ function SearchOverlay({
       return;
     }
 
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((index) => (index + 1) % results.length);
+      return;
     }
 
-    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+    if (event.key === "ArrowUp") {
       event.preventDefault();
       setActiveIndex((index) => (index - 1 + results.length) % results.length);
+      return;
     }
 
-    if (event.key === "Enter" && activeFilm?.slug) {
+    if (event.key === "Enter" && !event.nativeEvent.isComposing && activeFilm?.slug) {
       event.preventDefault();
       onSelect(activeFilm.slug, activeMorphId);
     }
@@ -2746,36 +3018,34 @@ function SearchOverlay({
         <input
           ref={inputRef}
           id="search-input"
-          type="text"
+          type="search"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
           onKeyDown={handleSearchKeyDown}
+          aria-describedby="search-status search-instructions"
           placeholder="Tìm kiếm phim, đạo diễn, diễn viên..."
           className="w-full border-b-2 border-[#3F3F46] bg-transparent py-4 font-display text-3xl font-bold leading-[1.18] tracking-[-0.015em] text-white outline-none transition-colors placeholder:text-[#71717A] focus:border-[#00F0FF] md:text-5xl"
         />
 
-        <div className="mt-8 min-h-8 text-sm font-medium text-[#A1A1AA]" aria-live="polite">
+        <div id="search-status" className="mt-8 min-h-8 text-sm font-medium text-[#A1A1AA]" aria-live="polite">
           {isLoading ? (
             <span className="inline-flex items-center gap-2 text-[#00F0FF]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Đang tìm kiếm
+              {searchStatus}
             </span>
-          ) : null}
-          {!keyword.trim() ? "Nhập ít nhất 2 ký tự để tìm phim." : null}
-          {keyword.trim().length === 1 ? "Thêm 1 ký tự nữa để bắt đầu." : null}
-          {shouldSearch && !isLoading && !error
-            ? `${results.length} kết quả`
-            : null}
+          ) : (
+            searchStatus
+          )}
         </div>
 
-        <div className="search-actions-row mt-4 flex flex-wrap gap-2 text-xs font-bold text-[#A1A1AA]">
+        <div id="search-instructions" className="search-actions-row mt-4 flex flex-wrap gap-2 text-xs font-bold text-[#A1A1AA]">
           <span>↑↓ chọn phim</span>
           <span>Enter mở chi tiết</span>
           <span>Esc đóng</span>
         </div>
 
         {error ? (
-          <div role="alert" className="state-panel state-panel-error mt-8 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm text-[#F4C7D4]">
+          <div role="alert" className="state-panel state-panel-error error-copy mt-8 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm">
             <p>Không thể tìm kiếm lúc này. Vui lòng thử lại.</p>
             <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
@@ -2803,9 +3073,12 @@ function SearchOverlay({
 
               return (
                 <motion.div
-                  key={`${film.slug ?? filmTitle(film)}-${index}`}
+                  ref={(element) => {
+                    resultRefs.current[index] = element;
+                  }}
+                  key={film.slug ?? `${filmTitle(film)}-${index}`}
                   className="search-result-shell"
-                  onMouseEnter={() => setActiveIndex(index)}
+                  onPointerEnter={() => setActiveIndex(index)}
                   onFocusCapture={() => setActiveIndex(index)}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2853,7 +3126,7 @@ function SearchOverlay({
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/10 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 p-4">
-                      <p className="text-[0.6875rem] font-extrabold uppercase tracking-[0.14em] text-[#7AF7FF]">
+                      <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#7AF7FF]">
                         Đang chọn
                       </p>
                       <h2 className="mt-2 line-clamp-2 font-display text-2xl font-extrabold leading-[1.16] tracking-[-0.018em] text-white">
@@ -2966,7 +3239,7 @@ function DetailsModal({
         ) : null}
 
         {error ? (
-          <div role="alert" className="state-panel state-panel-error md:col-span-2 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-6 text-[#F4C7D4]">
+          <div role="alert" className="state-panel state-panel-error error-copy md:col-span-2 rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-6">
             <p>Không thể tải chi tiết phim. Vui lòng thử lại.</p>
             <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
@@ -2993,7 +3266,7 @@ function DetailsModal({
               <div className="mb-4 flex flex-wrap gap-3">
                 <span className="inline-flex items-center gap-2 rounded-full border border-[#00F0FF]/30 bg-[#00F0FF]/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[#00F0FF]">
                   <Sparkles className="h-3.5 w-3.5" />
-                  FuuCine Pick
+                  FuuCine tuyển chọn
                 </span>
                 <ImdbBadge film={movie} className="rounded-full" />
                 {categories.map((category) => (
@@ -3232,7 +3505,7 @@ function PlayerModal({
         ) : null}
 
         {error ? (
-          <div role="alert" className="state-panel state-panel-error max-w-md rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-center text-sm text-[#F4C7D4]">
+          <div role="alert" className="state-panel state-panel-error error-copy max-w-md rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-center text-sm">
             <p>Không thể tải nguồn phát. Vui lòng thử lại.</p>
             <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
           </div>
@@ -3243,7 +3516,7 @@ function PlayerModal({
             key={embedUrl}
             src={embedUrl}
             className="h-full w-full border-none"
-            title={movie ? `Xem ${filmTitle(movie)}` : "FuuCine player"}
+            title={movie ? `Xem ${filmTitle(movie)} từ nguồn bên thứ ba` : "Nguồn phát FuuCine"}
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
           />
@@ -3257,8 +3530,8 @@ function PlayerModal({
 
         {movie ? (
           <div className="player-now-overlay pointer-events-none absolute bottom-4 left-4 right-4 z-10 flex flex-col gap-1 rounded-lg border border-white/10 bg-black/55 p-3 text-white backdrop-blur-xl md:left-6 md:right-auto md:min-w-[360px] md:max-w-[520px]">
-            <span className="text-[0.625rem] font-extrabold uppercase tracking-[0.14em] text-[#7AF7FF]">
-              FuuCine đang phát
+            <span className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#7AF7FF]">
+              Đang phát từ nguồn bên thứ ba
             </span>
             <span className="line-clamp-1 text-sm font-extrabold md:text-base">
               {filmTitle(movie)}
@@ -3275,7 +3548,7 @@ function PlayerModal({
 
       {activeEpisode ? (
         <div className="border-t border-white/10 bg-[#08080B] px-6 py-3 text-white md:px-8">
-          <p className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-[#7AF7FF]">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#7AF7FF]">
             Đang xem
           </p>
           <p className="mt-1 line-clamp-1 text-sm font-semibold">

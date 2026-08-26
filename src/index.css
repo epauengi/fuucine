@@ -140,7 +140,7 @@
     radial-gradient(circle, transparent 58%, rgba(0, 240, 255, 0.08) 59%, transparent 60%);
   filter: blur(0.2px);
   opacity: 0.34;
-  animation: heroOrbitSpin 24s linear infinite;
+  animation: none;
   mask-image: radial-gradient(circle, transparent 0 53%, black 54% 60%, transparent 61%);
 }
 
@@ -461,6 +461,28 @@ html[data-theme='light'] .movie-card-active {
     0 16px 36px rgba(15, 23, 42, 0.16);
 }
 
+html[data-theme='light'] .accent-copy {
+  color: #007583;
+}
+
+html[data-theme='light'] .muted-copy {
+  color: #475569;
+}
+
+html[data-theme='light'] .error-copy {
+  color: #9f1239;
+}
+
+html[data-theme='light'] .theme-focus {
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+}
+
+html[data-theme='light'] .theme-focus:hover {
+  border-color: #007583;
+  color: #007583;
+}
+
 html[data-theme='light'] .search-actions-row span {
   border-color: rgba(15, 23, 42, 0.1);
   background: rgba(255, 255, 255, 0.6);
@@ -468,8 +490,7 @@ html[data-theme='light'] .search-actions-row span {
 }
 
 html[data-theme='light'] .projector-grid,
-html[data-theme='light'] .filmstrip-mask,
-html[data-theme='light'] .cinematic-atmosphere {
+html[data-theme='light'] .filmstrip-mask {
   opacity: 0.16;
 }
 
@@ -643,76 +664,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   animation: projectorSweep 8s ease-in-out infinite alternate;
 }
 
-.cinematic-atmosphere {
-  mix-blend-mode: screen;
-}
-
-.cinema-beam {
-  position: absolute;
-  top: -12%;
-  height: 132%;
-  width: 34vw;
-  opacity: 0.12;
-  filter: blur(24px);
-  transform-origin: top center;
-  background:
-    linear-gradient(
-      105deg,
-      transparent 0%,
-      rgba(0, 240, 255, 0.02) 18%,
-      rgba(0, 240, 255, 0.16) 44%,
-      rgba(255, 255, 255, 0.07) 56%,
-      transparent 82%
-    );
-  animation: cinemaBeamDrift 12s ease-in-out infinite alternate;
-}
-
-.cinema-beam-a {
-  left: 8%;
-  transform: rotate(-17deg);
-}
-
-.cinema-beam-b {
-  right: 10%;
-  opacity: 0.1;
-  transform: rotate(19deg);
-  animation-delay: -4s;
-}
-
-.premiere-scanline {
-  position: absolute;
-  inset: 0;
-  opacity: 0.1;
-  background:
-    linear-gradient(
-      to bottom,
-      transparent 0%,
-      transparent 48%,
-      rgba(122, 247, 255, 0.16) 49%,
-      transparent 50%,
-      transparent 100%
-    );
-  background-size: 100% 18px;
-  mask-image: linear-gradient(to bottom, transparent, black 18%, black 78%, transparent);
-  animation: scanlineFloat 9s linear infinite;
-}
-
-.lens-iris {
-  position: absolute;
-  left: 50%;
-  top: 42%;
-  height: 52vmin;
-  width: 52vmin;
-  border-radius: 999px;
-  opacity: 0.18;
-  transform: translate(-50%, -50%);
-  background:
-    radial-gradient(circle, transparent 42%, rgba(0, 240, 255, 0.2) 43%, transparent 46%),
-    conic-gradient(from 40deg, transparent, rgba(255, 255, 255, 0.14), transparent, rgba(0, 240, 255, 0.18), transparent);
-  filter: blur(1px);
-  animation: lensBreath 11s ease-in-out infinite;
-}
-
 .cinema-title {
   position: relative;
   overflow: visible;
@@ -722,47 +673,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   text-shadow:
     0 0 28px rgba(0, 240, 255, 0.12),
     0 18px 42px rgba(0, 0, 0, 0.65);
-}
-
-.cinema-title::after {
-  content: "";
-  position: absolute;
-  inset: -0.08em 0 -0.08em 0;
-  pointer-events: none;
-  opacity: 0.34;
-  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.42) 42%, transparent 58%);
-  transform: translateX(-115%);
-  mix-blend-mode: overlay;
-  animation: titleSheen 5.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-.hero-signal-rail {
-  display: grid;
-  grid-template-columns: 1.2fr 0.7fr 1.8fr 0.4fr 1fr 2.2fr 0.6fr 1.4fr;
-  gap: 8px;
-  width: min(520px, 100%);
-  height: 7px;
-  opacity: 0.48;
-}
-
-.hero-signal-rail span {
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(0, 240, 255, 0.18), rgba(122, 247, 255, 0.96), rgba(255, 255, 255, 0.22));
-  box-shadow: 0 0 18px rgba(0, 240, 255, 0.32);
-  transform-origin: left center;
-  animation: signalPulse 2.8s ease-in-out infinite;
-}
-
-.hero-signal-rail span:nth-child(2n) {
-  opacity: 0.5;
-  animation-delay: -1.1s;
-}
-
-.hero-signal-rail span:nth-child(3n) {
-  background:
-    linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(255, 255, 255, 0.72), rgba(0, 240, 255, 0.22));
-  animation-delay: -1.8s;
 }
 
 .filter-console {
@@ -781,7 +691,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 24%);
   background-size: 240% 100%, 100% 100%;
   opacity: 0.58;
-  animation: filterRailSweep 7s ease-in-out infinite;
+  animation: none;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
@@ -899,6 +809,65 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   }
 }
 
+@media (hover: none), (pointer: coarse) {
+  .movie-card-copy {
+    opacity: 1;
+  }
+
+  .movie-card-spotlight > img {
+    filter: saturate(1.08) contrast(1.03);
+  }
+
+  .card-play-button {
+    background: #00f0ff;
+    box-shadow: 0 0 22px rgba(0, 240, 255, 0.28);
+  }
+}
+
+@media (max-width: 767px) {
+  .hero-timeline {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .row-lane {
+    position: relative;
+  }
+
+  .row-lane::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 3.5rem;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(3, 3, 5, 0.56));
+  }
+
+  html[data-theme='light'] .row-lane::after {
+    background: linear-gradient(90deg, transparent, rgba(238, 244, 247, 0.72));
+  }
+}
+
+.accent-copy {
+  color: #7af7ff;
+}
+
+.muted-copy {
+  color: #a1a1aa;
+}
+
+.error-copy {
+  color: #f4c7d4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .movie-card-spotlight > img {
+    transition: none;
+  }
+}
+
 .search-preview-panel {
   position: relative;
   box-shadow:
@@ -969,7 +938,7 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
     linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.08) 42%, transparent 58%),
     radial-gradient(420px circle at 0% 0%, rgba(0, 240, 255, 0.12), transparent 60%);
   background-size: 220% 100%, 100% 100%;
-  animation: filterRailSweep 5.8s ease-in-out infinite;
+  animation: none;
 }
 
 .state-panel-error::before {
@@ -1008,22 +977,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   filter: saturate(1.18) contrast(1.06);
 }
 
-@keyframes cinemaBeamDrift {
-  from {
-    transform: translateX(-7%) rotate(-17deg);
-  }
-
-  to {
-    transform: translateX(7%) rotate(-11deg);
-  }
-}
-
-@keyframes heroOrbitSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes heroAutoplayFill {
   from {
     transform: scaleX(0);
@@ -1045,60 +998,12 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   }
 }
 
-@keyframes scanlineFloat {
-  from {
-    background-position: 0 0;
-  }
-
-  to {
-    background-position: 0 180px;
-  }
-}
-
 .hero-timeline-button,
 .filter-chip,
 .pagination-button,
 .filter-select,
 .filter-submit {
   font-variant-numeric: tabular-nums;
-}
-
-@keyframes lensBreath {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(0.96) rotate(0deg);
-    opacity: 0.12;
-  }
-
-  50% {
-    transform: translate(-50%, -50%) scale(1.08) rotate(24deg);
-    opacity: 0.22;
-  }
-}
-
-@keyframes titleSheen {
-  0%,
-  58% {
-    transform: translateX(-115%);
-  }
-
-  82%,
-  100% {
-    transform: translateX(115%);
-  }
-}
-
-@keyframes signalPulse {
-  0%,
-  100% {
-    transform: scaleX(0.42);
-    opacity: 0.42;
-  }
-
-  50% {
-    transform: scaleX(1);
-    opacity: 1;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1112,12 +1017,6 @@ html[data-theme='light'] #duyet-phim button[aria-current='page'] {
   }
 
   .projector-sweep,
-  .cinema-beam,
-  .premiere-scanline,
-  .lens-iris,
-  .cinema-title::after,
-  .hero-orbit,
-  .hero-signal-rail span,
   .hero-autoplay-meter span {
     animation: none;
   }

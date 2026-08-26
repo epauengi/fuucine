@@ -7,7 +7,7 @@ interface ThemeToggleProps {
 }
 
 function getIsDarkTheme() {
-  return document.documentElement.dataset.theme !== "light";
+  return typeof document === "undefined" || document.documentElement.dataset.theme !== "light";
 }
 
 export function ThemeToggle({ className }: ThemeToggleProps) {
@@ -24,7 +24,12 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
 
       document.documentElement.dataset.theme = theme;
       document.documentElement.style.colorScheme = theme;
-      window.localStorage.setItem("theme", theme);
+
+      try {
+        window.localStorage.setItem("theme", theme);
+      } catch {
+        // Storage can be unavailable in privacy-restricted contexts.
+      }
 
       return isNextDark;
     });
