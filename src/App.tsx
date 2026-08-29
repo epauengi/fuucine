@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   AnimatePresence,
+  LayoutGroup,
   motion,
   useReducedMotion,
   type Variants,
@@ -1339,8 +1340,9 @@ export default function FuuCine_Root() {
   };
 
   return (
-    <div className="cinema-shell relative min-h-screen w-full overflow-hidden bg-[#030305] font-body text-[#FAFAFA] transition-colors duration-300">
-      <div ref={backgroundRef}>
+    <LayoutGroup id="fuucine-layout">
+      <div className="cinema-shell relative min-h-screen w-full overflow-hidden bg-[#030305] font-body text-[#FAFAFA] transition-colors duration-300">
+        <div ref={backgroundRef}>
         <a
           href="#main-content"
           className="skip-link fixed left-4 top-4 z-[100] -translate-y-20 rounded-md bg-[#00F0FF] px-4 py-3 font-bold text-[#030305] transition-transform focus:translate-y-0 focus:outline-none"
@@ -1425,10 +1427,10 @@ export default function FuuCine_Root() {
             </section>
           )}
         </main>
-      </div>
+        </div>
 
-      <AnimatePresence>
-        {entryNoticeOpen ? (
+        <AnimatePresence>
+          {entryNoticeOpen ? (
           <EntryNotice
             onDismiss={() => {
               writeStorageFlag(ENTRY_NOTICE_STORAGE_KEY);
@@ -1503,7 +1505,8 @@ export default function FuuCine_Root() {
           />
         ) : null}
       </AnimatePresence>
-    </div>
+      </div>
+    </LayoutGroup>
   );
 }
 
