@@ -30,6 +30,7 @@ import {
   type RefObject,
 } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { CinemaProjectorCanvas } from "@/components/ui/cinema-projector-canvas";
 
 const API_ROOT = "/nguonc-api";
 const IMDB_API_ROOT = "/imdb-api";
@@ -1351,6 +1352,7 @@ export default function FuuCine_Root() {
           Bỏ qua điều hướng
         </a>
         <AmbientLayer image={ambientImage} />
+        <CinemaProjectorCanvas />
         <div className="theme-readable-mask absolute inset-0 z-10 pointer-events-none" />
 
         <Navigation
