@@ -231,6 +231,12 @@
 .movie-card-spotlight {
   --card-x: 50%;
   --card-y: 50%;
+  --tilt-rx: 0deg;
+  --tilt-ry: 0deg;
+  transform: perspective(800px) rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry));
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.4, 1), box-shadow 220ms ease;
+  transform-style: preserve-3d;
+  will-change: transform;
 }
 
 .movie-card-spotlight::before {

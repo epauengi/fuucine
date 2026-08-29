@@ -2791,6 +2791,10 @@ function MovieCard({
   };
   const endPreview = () => {
     setIsEngaged(false);
+    if (cardRef.current) {
+      cardRef.current.style.setProperty("--tilt-rx", "0deg");
+      cardRef.current.style.setProperty("--tilt-ry", "0deg");
+    }
     onPreviewEnd();
   };
   const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
@@ -2799,8 +2803,17 @@ function MovieCard({
     }
 
     const rect = cardRef.current.getBoundingClientRect();
-    cardRef.current.style.setProperty("--card-x", `${event.clientX - rect.left}px`);
-    cardRef.current.style.setProperty("--card-y", `${event.clientY - rect.top}px`);
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    cardRef.current.style.setProperty("--card-x", `${x}px`);
+    cardRef.current.style.setProperty("--card-y", `${y}px`);
+
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const rotateX = ((y - centerY) / centerY) * -8;
+    const rotateY = ((x - centerX) / centerX) * 8;
+    cardRef.current.style.setProperty("--tilt-rx", `${rotateX.toFixed(2)}deg`);
+    cardRef.current.style.setProperty("--tilt-ry", `${rotateY.toFixed(2)}deg`);
   };
 
   return (
