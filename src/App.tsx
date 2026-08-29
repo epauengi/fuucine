@@ -1180,7 +1180,8 @@ export default function FuuCine_Root() {
     searchOpen ||
     playbackDisclosureOpen ||
     Boolean(detailsSelection) ||
-    Boolean(playerSelection);
+    Boolean(playerSelection) ||
+    Boolean(entryNoticeOpen);
 
   useEffect(() => {
     document.title = PAGE_TITLE;
@@ -2170,7 +2171,7 @@ function HeroPosterDeck({
           );
         })}
 
-        <div className="glass-panel absolute left-10 top-[410px] z-40 w-[360px] rounded-lg p-4">
+        <div className="hero-deck-tuning-panel glass-panel absolute left-10 top-[410px] z-40 w-[360px] rounded-lg p-4">
           <div className="mb-3 flex items-center justify-between gap-4">
             <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#7AF7FF]">
               Đang chọn

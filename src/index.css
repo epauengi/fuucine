@@ -625,6 +625,33 @@ html[data-theme='light'] .movie-card-spotlight h3 {
   color: #ffffff;
 }
 
+html[data-theme='light'] .hero-deck-tuning-panel {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(239, 248, 251, 0.92)),
+    rgba(248, 252, 255, 0.94);
+  border-color: rgba(14, 35, 45, 0.14);
+  color: var(--fc-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 24px 60px rgba(20, 36, 48, 0.18);
+}
+
+html[data-theme='light'] .hero-deck-tuning-panel .text-white {
+  color: var(--fc-text) !important;
+}
+
+html[data-theme='light'] .hero-deck-tuning-panel .text-white\/\[0\.45\] {
+  color: #64748b !important;
+}
+
+html[data-theme='light'] .hero-deck-tuning-panel .text-\[\#A1A1AA\] {
+  color: #475569 !important;
+}
+
+html[data-theme='light'] .hero-deck-tuning-panel .border-white\/\[0\.08\] {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
 html[data-theme='light'] .pagination-button {
   background: rgba(255, 255, 255, 0.72);
   border-color: rgba(15, 23, 42, 0.12);
@@ -1559,7 +1586,7 @@ section[aria-label='Chọn tập phim'] button:not(:disabled):active {
 html[data-theme='light'] body,
 html[data-theme='light'] .cinema-shell {
   background-color: var(--fc-bg) !important;
-  color: var(--fc-text);
+  color: var(--fc-text) !important;
 }
 
 html[data-theme='light'] header.nav-surface {
@@ -1632,6 +1659,55 @@ html[data-theme='light'] .state-panel {
 html[data-theme='light'] .state-panel-error {
   background: rgba(190, 24, 93, 0.08) !important;
   border-color: rgba(159, 18, 57, 0.28) !important;
+}
+
+html[data-theme='light'] .mobile-menu-surface a {
+  color: #334155 !important;
+}
+
+html[data-theme='light'] .mobile-menu-surface a:hover,
+html[data-theme='light'] .mobile-menu-surface a[aria-current='location'],
+html[data-theme='light'] .mobile-menu-surface a:focus-visible {
+  background: rgba(0, 142, 160, 0.09) !important;
+  color: #0b1016 !important;
+}
+
+html[data-theme='light'] .mobile-menu-surface > div {
+  color: #334155 !important;
+}
+
+/* Search remains a dark command surface in either theme; only the page chrome changes. */
+html[data-theme='light'] [role='dialog'][aria-label='Tìm kiếm phim'] .search-preview-panel {
+  background: rgba(11, 11, 16, 0.96) !important;
+  border-color: rgba(255, 255, 255, 0.11) !important;
+  color: #fafafa !important;
+  box-shadow: 0 26px 72px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+html[data-theme='light'] [role='dialog'][aria-label='Tìm kiếm phim'] .search-preview-panel .text-\[\#D4D4D8\] {
+  color: #d4d4d8 !important;
+}
+
+html[data-theme='light'] section[aria-label='Chọn tập phim'] h3,
+html[data-theme='light'] section[aria-label='Chọn tập phim'] h4 {
+  color: var(--fc-text) !important;
+}
+
+html[data-theme='light'] section[aria-label='Chọn tập phim'] p,
+html[data-theme='light'] section[aria-label='Chọn tập phim'] span {
+  color: var(--fc-muted) !important;
+}
+
+html[data-theme='light'] section[aria-label='Chọn tập phim'] button {
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  background: rgba(15, 23, 42, 0.045) !important;
+  color: var(--fc-copy) !important;
+}
+
+html[data-theme='light'] section[aria-label='Chọn tập phim'] button[aria-pressed='true'] {
+  border-color: var(--fc-signal) !important;
+  background: rgba(0, 142, 160, 0.14) !important;
+  color: var(--fc-text) !important;
 }
 
 /* Final light-theme pass: controls and notices must not inherit dark utilities. */
