@@ -1369,6 +1369,7 @@ header.nav-surface > div:first-child {
 }
 
 .row-lane {
+  position: relative;
   border-color: var(--fc-border-soft) !important;
   background: linear-gradient(90deg, rgba(0, 240, 255, 0.045), transparent 34%), linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)) !important;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22) !important;
@@ -1754,6 +1755,100 @@ html[data-theme='light'] .entry-notice .text-\[\#D4D4D8\] {
   color: var(--fc-copy) !important;
 }
 
+/* Rail transport: quiet controls that become signal only when useful. */
+.rail-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rail-transport-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rail-transport-button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--fc-border-soft);
+  border-radius: 10px;
+  background: var(--fc-surface-soft);
+  color: var(--fc-muted);
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, transform 180ms ease, opacity 180ms ease;
+}
+
+.rail-transport-button:hover:not(:disabled),
+.rail-transport-button:focus-visible {
+  border-color: rgba(0, 240, 255, 0.52);
+  background: var(--fc-signal-wash);
+  color: var(--fc-signal-bright);
+  transform: translateY(-1px);
+}
+
+.rail-transport-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
+.rail-transport-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+
+.rail-progress {
+  width: 84px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--fc-border-soft);
+}
+
+.rail-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--fc-signal);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.42);
+  transform-origin: left center;
+  transition: transform 180ms ease;
+}
+
+html[data-theme='light'] .rail-transport-button {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.045);
+  color: var(--fc-muted);
+}
+
+html[data-theme='light'] .rail-transport-button:hover:not(:disabled),
+html[data-theme='light'] .rail-transport-button:focus-visible {
+  border-color: rgba(0, 142, 160, 0.5);
+  background: var(--fc-signal-wash);
+  color: var(--fc-signal-bright);
+}
+
+html[data-theme='light'] .rail-progress span {
+  box-shadow: 0 0 12px rgba(0, 142, 160, 0.3);
+}
+
+@media (max-width: 639px) {
+  .rail-transport {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rail-progress {
+    flex: 1;
+    min-width: 64px;
+    max-width: 140px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   header.nav-surface,
   .movie-card-spotlight,
@@ -1762,7 +1857,9 @@ html[data-theme='light'] .entry-notice .text-\[\#D4D4D8\] {
   .hero-timeline-button,
   .filter-submit,
   .pagination-button,
-  section[aria-label='Chọn tập phim'] button {
+  section[aria-label='Chọn tập phim'] button,
+  .rail-transport-button,
+  .rail-progress span {
     transition: none !important;
   }
 
@@ -1770,7 +1867,10 @@ html[data-theme='light'] .entry-notice .text-\[\#D4D4D8\] {
   .movie-card-spotlight:focus-within,
   .nav-icon-button:hover,
   #home .hero-timeline-button:hover,
-  #home .hero-timeline-button[aria-pressed='true'] {
+  #home .hero-timeline-button[aria-pressed='true'],
+  .rail-transport-button:hover:not(:disabled),
+  .rail-transport-button:focus-visible,
+  .rail-transport-button:active:not(:disabled) {
     transform: none !important;
   }
 }

@@ -1,4 +1,6 @@
 import {
+  ChevronLeft,
+  ChevronRight,
   Info,
   Loader2,
   Menu,
@@ -2669,11 +2671,111 @@ function MovieRow({
     fallbackKey(row.endpoints),
     fetchFirstList,
   );
+  const railRef = useRef<HTMLDivElement>(null);
+  const [railState, setRailState] = useState({
+    hasOverflow: false,
+    canScrollPrevious: false,
+    canScrollNext: false,
+    progress: 0,
+  });
+  const prefersReducedMotion = useReducedMotion();
   const films = getItems(data);
   const rowVariants: Variants = {
     hidden: { opacity: 0, x: 50 },
     show: { opacity: 1, x: 0 },
   };
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) {
+      return;
+    }
+
+    let frame = 0;
+    let mounted = true;
+    const updateRailState = () => {
+      frame = 0;
+      const maxScroll = Math.max(rail.scrollWidth - rail.clientWidth, 0);
+      const scrollLeft = Math.min(Math.max(rail.scrollLeft, 0), maxScroll);
+      const atStart = scrollLeft <= 8;
+      const atEnd = maxScroll - scrollLeft <= 8;
+      const nextState = {
+        hasOverflow: maxScroll > 8,
+        canScrollPrevious: !atStart,
+        canScrollNext: !atEnd,
+        progress:
+          maxScroll > 8
+            ? atStart
+              ? 0
+              : atEnd
+                ? 1
+                : Math.min(scrollLeft / maxScroll, 1)
+            : 0,
+      };
+
+      if (!mounted) {
+        return;
+      }
+
+      setRailState((current) =>
+        current.hasOverflow === nextState.hasOverflow &&
+        current.canScrollPrevious === nextState.canScrollPrevious &&
+        current.canScrollNext === nextState.canScrollNext &&
+        current.progress === nextState.progress
+          ? current
+          : nextState,
+      );
+    };
+    const scheduleRailStateUpdate = () => {
+      if (!frame) {
+        frame = window.requestAnimationFrame(updateRailState);
+      }
+    };
+
+    updateRailState();
+    rail.addEventListener("scroll", scheduleRailStateUpdate, { passive: true });
+    window.addEventListener("resize", scheduleRailStateUpdate, { passive: true });
+
+    let resizeObserver: ResizeObserver | undefined;
+    if ("ResizeObserver" in window) {
+      resizeObserver = new ResizeObserver(scheduleRailStateUpdate);
+      resizeObserver.observe(rail);
+    }
+
+    return () => {
+      mounted = false;
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      rail.removeEventListener("scroll", scheduleRailStateUpdate);
+      window.removeEventListener("resize", scheduleRailStateUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [films.length, isLoading, error]);
+
+  const scrollRail = (direction: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail || !rail.clientWidth) {
+      return;
+    }
+
+    const distance = direction * Math.round(rail.clientWidth * 0.8);
+    const target = Math.min(
+      Math.max(rail.scrollLeft + distance, 0),
+      Math.max(rail.scrollWidth - rail.clientWidth, 0),
+    );
+
+    if (Math.abs(target - rail.scrollLeft) < 1) {
+      return;
+    }
+
+    rail.scrollTo({
+      left: target,
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  };
+  const showRailControls =
+    !isLoading && !error && films.length > 0 && railState.hasOverflow;
 
   return (
     <motion.section
@@ -2688,58 +2790,107 @@ function MovieRow({
       aria-busy={isLoading || isValidating}
     >
       <div className="row-lane rounded-l-lg border border-r-0 border-white/[0.08] py-5 pl-4 shadow-[0_22px_60px_rgba(0,0,0,0.28)] md:py-6 md:pl-6">
-      <p className="sr-only" aria-live="polite">
-        {isLoading ? `Đang tải ${row.title}` : error ? `Không thể tải ${row.title}` : `${films.length} phim trong ${row.title}`}
-      </p>
-      <div className="mb-6 flex flex-col gap-3 pr-6 sm:flex-row sm:items-end sm:justify-between md:pr-16">
-        <div className="flex items-end gap-3 md:gap-4">
-          <span className="hidden font-display text-5xl font-extrabold leading-none tracking-[-0.025em] text-white/[0.055] md:block">
-            {String(rows.findIndex((item) => item.id === row.id) + 1).padStart(
-              2,
-              "0",
-            )}
-          </span>
-        <h2
-          id={`${row.id}-title`}
-          className="font-display text-2xl font-bold tracking-[-0.015em] text-white md:text-3xl"
-        >
-          {row.title}
-        </h2>
+        <p className="sr-only" aria-live="polite">
+          {isLoading
+            ? `Đang tải ${row.title}`
+            : error
+              ? `Không thể tải ${row.title}`
+              : `${films.length} phim trong ${row.title}`}
+        </p>
+
+        <div className="mb-6 flex flex-col gap-3 pr-6 sm:flex-row sm:items-end sm:justify-between md:pr-16">
+          <div className="flex items-end gap-3 md:gap-4">
+            <span className="hidden font-display text-5xl font-extrabold leading-none tracking-[-0.025em] text-white/[0.055] md:block">
+              {String(rows.findIndex((item) => item.id === row.id) + 1).padStart(
+                2,
+                "0",
+              )}
+            </span>
+            <h2
+              id={`${row.id}-title`}
+              className="font-display text-2xl font-bold tracking-[-0.015em] text-white md:text-3xl"
+            >
+              {row.title}
+            </h2>
+          </div>
+
+          {showRailControls ? (
+            <div
+              className="rail-transport"
+              role="group"
+              aria-label={`Điều khiển cuộn ${row.title}`}
+            >
+              <div className="rail-transport-actions">
+                <button
+                  type="button"
+                  className="rail-transport-button focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                  onClick={() => scrollRail(-1)}
+                  disabled={!railState.canScrollPrevious}
+                  aria-controls={`${row.id}-rail`}
+                  aria-label={`Cuộn ${row.title} sang trái`}
+                >
+                  <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="rail-transport-button focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                  onClick={() => scrollRail(1)}
+                  disabled={!railState.canScrollNext}
+                  aria-controls={`${row.id}-rail`}
+                  aria-label={`Cuộn ${row.title} sang phải`}
+                >
+                  <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="rail-progress" aria-hidden="true">
+                <span style={{ transform: `scaleX(${railState.progress})` }} />
+              </div>
+            </div>
+          ) : null}
         </div>
-      </div>
 
-      <div className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-5 pr-6 pt-2 md:gap-6 md:pr-16">
-        {isLoading ? (
-          Array.from({ length: 8 }).map((_, index) => (
-            <MovieCardSkeleton key={index} />
-          ))
-        ) : null}
+        <div
+          ref={railRef}
+          id={`${row.id}-rail`}
+          className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-5 pr-6 pt-2 md:gap-6 md:pr-16"
+        >
+          {isLoading
+            ? Array.from({ length: 8 }).map((_, index) => (
+                <MovieCardSkeleton key={index} />
+              ))
+            : null}
 
-        {error ? (
-          <div role="alert" className="state-panel state-panel-error error-copy min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm">
-            <p>Không thể tải hàng phim này. Vui lòng thử lại.</p>
-            <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
-          </div>
-        ) : null}
+          {error ? (
+            <div
+              role="alert"
+              className="state-panel state-panel-error error-copy min-h-[180px] w-full rounded-lg border border-[#FF0055]/25 bg-[#FF0055]/10 p-5 text-sm"
+            >
+              <p>Không thể tải hàng phim này. Vui lòng thử lại.</p>
+              <RetryButton onRetry={() => void mutate()} isRetrying={isValidating} />
+            </div>
+          ) : null}
 
-        {!isLoading && !error && films.length === 0 ? (
-          <div role="status" className="state-panel min-h-[180px] w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm text-[#D4D4D8]">
-            Chưa có phim trong danh mục này.
-          </div>
-        ) : null}
+          {!isLoading && !error && films.length === 0 ? (
+            <div
+              role="status"
+              className="state-panel min-h-[180px] w-full rounded-lg border border-white/10 bg-white/[0.04] p-5 text-sm text-[#D4D4D8]"
+            >
+              Chưa có phim trong danh mục này.
+            </div>
+          ) : null}
 
-        {films.map((film, index) => (
-          <MovieCard
-            key={film.slug ?? `${filmTitle(film)}-${index}`}
-            film={film}
-            morphId={`row-${row.id}-${index}-${film.slug ?? filmTitle(film)}`}
-            onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
-            onPlay={(morphId) => film.slug && onPlay(film.slug, morphId)}
-            onPreview={() => onPreview(getPoster(film))}
-            onPreviewEnd={onPreviewEnd}
-          />
-        ))}
-      </div>
+          {films.map((film, index) => (
+            <MovieCard
+              key={film.slug ?? `${filmTitle(film)}-${index}`}
+              film={film}
+              morphId={`row-${row.id}-${index}-${film.slug ?? filmTitle(film)}`}
+              onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
+              onPlay={(morphId) => film.slug && onPlay(film.slug, morphId)}
+              onPreview={() => onPreview(getPoster(film))}
+              onPreviewEnd={onPreviewEnd}
+            />
+          ))}
+        </div>
       </div>
     </motion.section>
   );
