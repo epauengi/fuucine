@@ -1160,6 +1160,7 @@ export default function FuuCine_Root() {
   const [browseLoading, setBrowseLoading] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   const [heroPaused, setHeroPaused] = useState(false);
+  const [heroHovered, setHeroHovered] = useState(false);
   const {
     data: latestData,
     error: latestError,
@@ -1202,7 +1203,7 @@ export default function FuuCine_Root() {
 
   const prefersReducedMotion = useReducedMotion();
   const heroAutoplaying =
-    heroFilms.length > 1 && !overlayOpen && !heroPaused && !prefersReducedMotion;
+    heroFilms.length > 1 && !overlayOpen && !heroPaused && !heroHovered && !prefersReducedMotion;
 
   useEffect(() => {
     if (!heroAutoplaying) {
@@ -1354,7 +1355,10 @@ export default function FuuCine_Root() {
           Bỏ qua điều hướng
         </a>
         <AmbientLayer image={ambientImage} />
-        <CinemaProjectorCanvas />
+        <CinemaProjectorCanvas
+          active={!overlayOpen}
+          pulseTrigger={heroFilm?.slug ?? ambientImage}
+        />
         <div className="theme-readable-mask absolute inset-0 z-10 pointer-events-none" />
 
         <Navigation
@@ -1380,7 +1384,8 @@ export default function FuuCine_Root() {
             activeSlug={heroFilm?.slug}
             autoplaying={heroAutoplaying}
             paused={heroPaused}
-            onPause={() => setHeroPaused(true)}
+            onHoverStart={() => setHeroHovered(true)}
+            onHoverEnd={() => setHeroHovered(false)}
             onToggleAutoplay={() => setHeroPaused((paused) => !paused)}
             onSelectFilm={handleHeroSelect}
             onDetails={() =>
@@ -1651,12 +1656,10 @@ function AmbientLayer({ image }: { image: string }) {
           transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
         />
       </AnimatePresence>
-      <div className="projector-grid absolute inset-0 opacity-20" />
-      <div className="projector-sweep absolute -left-1/4 top-0 h-full w-2/3 bg-[linear-gradient(100deg,transparent,rgba(0,240,255,0.08),rgba(255,255,255,0.04),transparent)] blur-2xl" />
-      <div className="filmstrip-mask absolute left-0 right-0 top-28 h-3 opacity-10" />
-      <div className="filmstrip-mask absolute bottom-20 left-0 right-0 h-3 opacity-[0.06]" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_22%_42%,rgba(0,240,255,0.08),transparent_36%)]" />
-      <div className="ambient-dim absolute inset-0 bg-[#030305]/[0.76]" />
+      <div className="projector-grid absolute inset-0 opacity-15" />
+      <div className="filmstrip-mask absolute left-0 right-0 top-28 h-3 opacity-[0.08]" />
+      <div className="filmstrip-mask absolute bottom-20 left-0 right-0 h-3 opacity-[0.05]" />
+      <div className="ambient-dim absolute inset-0 bg-[#030305]/[0.82]" />
     </div>
   );
 }
@@ -1865,7 +1868,8 @@ function HeroSection({
   activeSlug,
   autoplaying,
   paused,
-  onPause,
+  onHoverStart,
+  onHoverEnd,
   onToggleAutoplay,
   onSelectFilm,
   onDetails,
@@ -1880,7 +1884,8 @@ function HeroSection({
   activeSlug?: string;
   autoplaying: boolean;
   paused: boolean;
-  onPause: () => void;
+  onHoverStart: () => void;
+  onHoverEnd: () => void;
   onToggleAutoplay: () => void;
   onSelectFilm: (slug?: string) => void;
   onDetails: () => void;
@@ -1894,8 +1899,10 @@ function HeroSection({
     <section
       id="home"
       aria-busy={isLoading || isRetrying}
-      onPointerEnter={onPause}
-      onFocusCapture={onPause}
+      onPointerEnter={onHoverStart}
+      onPointerLeave={onHoverEnd}
+      onFocusCapture={onHoverStart}
+      onBlurCapture={onHoverEnd}
       className="relative grid min-h-[100dvh] w-full overflow-hidden px-6 pb-20 pt-32 md:min-h-[760px] md:grid-cols-[minmax(0,1fr)_minmax(340px,520px)] md:items-end md:gap-12 md:px-16 md:pb-24 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,600px)]"
     >
       {film ? (
@@ -1993,7 +2000,11 @@ function HeroSection({
             {autoplaying ? (
               <div
                 className="hero-autoplay-meter"
-                aria-hidden="true"
+                role="progressbar"
+                aria-label="Thời gian tự động chuyển phim nổi bật"
+                aria-valuenow={100}
+                aria-valuemin={0}
+                aria-valuemax={100}
               >
                 <span />
               </div>
@@ -2312,6 +2323,7 @@ function BrowseFilterPanel({
           </div>
 
           <div
+            role="group"
             className="filter-segment-group grid w-full grid-cols-2 gap-1 rounded-md border border-white/[0.08] bg-black/25 p-1 sm:w-[280px]"
             aria-label="Loại danh sách"
           >
@@ -2937,6 +2949,7 @@ function MovieCard({
     return () => observer.disconnect();
   }, []);
 
+  const reduceMotion = useReducedMotion();
   const beginPreview = () => {
     setIsEngaged(true);
     setRatingEnabled(true);
@@ -2951,7 +2964,7 @@ function MovieCard({
     onPreviewEnd();
   };
   const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.pointerType !== "mouse" || !cardRef.current) {
+    if (event.pointerType !== "mouse" || !cardRef.current || reduceMotion) {
       return;
     }
 
@@ -2963,8 +2976,9 @@ function MovieCard({
 
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    const rotateX = ((y - centerY) / centerY) * -8;
-    const rotateY = ((x - centerX) / centerX) * 8;
+    // Quieter: giảm góc xoay 3D từ 8deg xuống tối đa 3.5deg
+    const rotateX = ((y - centerY) / centerY) * -3.5;
+    const rotateY = ((x - centerX) / centerX) * 3.5;
     cardRef.current.style.setProperty("--tilt-rx", `${rotateX.toFixed(2)}deg`);
     cardRef.current.style.setProperty("--tilt-ry", `${rotateY.toFixed(2)}deg`);
   };
@@ -3688,6 +3702,7 @@ function PlayerModal({
             className="h-full w-full border-none"
             title={movie ? `Xem ${filmTitle(movie)} từ nguồn bên thứ ba` : "Nguồn phát FuuCine"}
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
             allowFullScreen
           />
         ) : null}

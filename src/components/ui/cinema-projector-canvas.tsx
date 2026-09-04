@@ -65,8 +65,23 @@ void main() {
 }
 `;
 
-export function CinemaProjectorCanvas() {
+interface CinemaProjectorCanvasProps {
+  active?: boolean;
+  pulseTrigger?: string | number;
+}
+
+export function CinemaProjectorCanvas({
+  active = true,
+  pulseTrigger,
+}: CinemaProjectorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const pulseRef = useRef(0);
+
+  useEffect(() => {
+    pulseRef.current = 1.0;
+  }, [pulseTrigger]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -163,36 +178,66 @@ export function CinemaProjectorCanvas() {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
-    let isVisible = true;
+    let isVisible = document.visibilityState === "visible";
+    let currentBeamOpacity = activeRef.current ? 1.0 : 0.2;
+
+    const startLoop = () => {
+      if (!animId && isVisible) {
+        animId = requestAnimationFrame(render);
+      }
+    };
+
+    const stopLoop = () => {
+      if (animId) {
+        cancelAnimationFrame(animId);
+        animId = 0;
+      }
+    };
+
     const handleVisibility = () => {
       isVisible = document.visibilityState === "visible";
+      if (isVisible) {
+        startLoop();
+      } else {
+        stopLoop();
+      }
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
     const render = (now: number) => {
-      if (isVisible) {
-        mouseX += (targetMouseX - mouseX) * 0.05;
-        mouseY += (targetMouseY - mouseY) * 0.05;
-
-        const isDark = document.documentElement.dataset.theme !== "light";
-        const intensity = isDark ? 1.0 : 0.45;
-
-        gl.uniform2f(uRes, canvas.width, canvas.height);
-        gl.uniform1f(uTime, (now - startTime) * 0.001);
-        gl.uniform2f(uMouse, mouseX, mouseY);
-        gl.uniform1f(uIntensity, intensity);
-
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      if (!isVisible) {
+        animId = 0;
+        return;
       }
+
+      mouseX += (targetMouseX - mouseX) * 0.05;
+      mouseY += (targetMouseY - mouseY) * 0.05;
+
+      const targetBeamOpacity = activeRef.current ? 1.0 : 0.25;
+      currentBeamOpacity += (targetBeamOpacity - currentBeamOpacity) * 0.04;
+
+      pulseRef.current = Math.max(0, pulseRef.current - 0.02);
+
+      const isDark = document.documentElement.dataset.theme !== "light";
+      const baseIntensity = isDark ? 1.0 : 0.45;
+      const finalIntensity = baseIntensity * currentBeamOpacity * (1.0 + pulseRef.current * 0.6);
+
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, (now - startTime) * 0.001);
+      gl.uniform2f(uMouse, mouseX, mouseY);
+      gl.uniform1f(uIntensity, finalIntensity);
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
       animId = requestAnimationFrame(render);
     };
 
-    animId = requestAnimationFrame(render);
+    startLoop();
 
     return () => {
-      cancelAnimationFrame(animId);
+      stopLoop();
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", handleVisibility);
