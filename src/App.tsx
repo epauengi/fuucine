@@ -1,6 +1,9 @@
 import {
+  Bookmark,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Heart,
   Info,
   Loader2,
   Menu,
@@ -11,6 +14,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Star,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -33,6 +37,12 @@ import {
 } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { CinemaProjectorCanvas } from "@/components/ui/cinema-projector-canvas";
+import {
+  useWatchlistAndHistory,
+  type HistoryItem,
+  type WatchlistItem,
+} from "@/lib/watchlist-store";
+import { WatchlistDrawer } from "@/components/ui/watchlist-drawer";
 
 const API_ROOT = "/nguonc-api";
 const IMDB_API_ROOT = "/imdb-api";
@@ -1145,6 +1155,18 @@ export default function FuuCine_Root() {
   const backgroundRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [watchlistDrawerOpen, setWatchlistDrawerOpen] = useState(false);
+  const [watchlistDrawerTab, setWatchlistDrawerTab] = useState<"watchlist" | "history">("watchlist");
+  const {
+    watchlist,
+    history,
+    isInWatchlist,
+    toggleWatchlist,
+    removeFromWatchlist,
+    addToHistory,
+    removeFromHistory,
+    clearAllHistory,
+  } = useWatchlistAndHistory();
   const [detailsSelection, setDetailsSelection] = useState<DetailsSelection | null>(null);
   const [playerSelection, setPlayerSelection] = useState<PlayerSelection | null>(null);
   const [pendingPlayerSelection, setPendingPlayerSelection] =
@@ -1183,6 +1205,7 @@ export default function FuuCine_Root() {
   const overlayOpen =
     searchOpen ||
     playbackDisclosureOpen ||
+    watchlistDrawerOpen ||
     Boolean(detailsSelection) ||
     Boolean(playerSelection) ||
     Boolean(entryNoticeOpen);
@@ -1268,6 +1291,15 @@ export default function FuuCine_Root() {
 
     setPendingPlayerSelection(selection);
     setPlaybackDisclosureOpen(true);
+  };
+  const openWatchlist = (tab: "watchlist" | "history" = "watchlist") => {
+    openOverlay();
+    setWatchlistDrawerTab(tab);
+    setWatchlistDrawerOpen(true);
+  };
+  const closeWatchlist = () => {
+    setWatchlistDrawerOpen(false);
+    restoreOpener();
   };
   const closeDetails = () => {
     setDetailsSelection(null);
@@ -1363,6 +1395,12 @@ export default function FuuCine_Root() {
 
         <Navigation
           browseActive={Boolean(appliedFilters)}
+          watchlistCount={watchlist.length}
+          onOpenWatchlist={() => {
+            openOverlay();
+            setWatchlistDrawerTab("watchlist");
+            setWatchlistDrawerOpen(true);
+          }}
           onOpenSearch={() => {
             openOverlay();
             setSearchOpen(true);
@@ -1388,6 +1426,8 @@ export default function FuuCine_Root() {
             onHoverEnd={() => setHeroHovered(false)}
             onToggleAutoplay={() => setHeroPaused((paused) => !paused)}
             onSelectFilm={handleHeroSelect}
+            isWatchlist={Boolean(heroFilm?.slug && isInWatchlist(heroFilm.slug))}
+            onToggleWatchlist={() => heroFilm && toggleWatchlist(heroFilm)}
             onDetails={() =>
               heroFilm?.slug &&
               openDetails({
@@ -1421,9 +1461,49 @@ export default function FuuCine_Root() {
               onPreview={setAmbientImage}
               onPreviewEnd={handlePreviewEnd}
               onLoadingChange={setBrowseLoading}
+              isInWatchlist={isInWatchlist}
+              onToggleWatchlist={toggleWatchlist}
             />
           ) : (
             <section className="pb-16 pt-2 md:pt-4" aria-label="Danh sách phim tuyển chọn">
+              {history.length > 0 ? (
+                <SavedMoviesRail
+                  id="tiep-tuc-xem"
+                  title="Tiếp tục xem"
+                  type="history"
+                  items={history}
+                  onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+                  onPlay={(slug, episodeUrl) => openPlayer({ slug, episodeUrl })}
+                  onRemove={removeFromHistory}
+                  onViewAll={() => {
+                    openOverlay();
+                    setWatchlistDrawerTab("history");
+                    setWatchlistDrawerOpen(true);
+                  }}
+                  onPreview={setAmbientImage}
+                  onPreviewEnd={handlePreviewEnd}
+                />
+              ) : null}
+
+              {watchlist.length > 0 ? (
+                <SavedMoviesRail
+                  id="danh-sach-cua-ban"
+                  title="Danh sách của bạn"
+                  type="watchlist"
+                  items={watchlist}
+                  onSelect={(slug, morphId) => openDetails({ slug, morphId })}
+                  onPlay={(slug) => openPlayer({ slug })}
+                  onRemove={removeFromWatchlist}
+                  onViewAll={() => {
+                    openOverlay();
+                    setWatchlistDrawerTab("watchlist");
+                    setWatchlistDrawerOpen(true);
+                  }}
+                  onPreview={setAmbientImage}
+                  onPreviewEnd={handlePreviewEnd}
+                />
+              ) : null}
+
               {rows.map((row) => (
                 <MovieRow
                   key={row.id}
@@ -1432,6 +1512,8 @@ export default function FuuCine_Root() {
                   onPlay={(slug, morphId) => openPlayer({ slug, morphId })}
                   onPreview={setAmbientImage}
                   onPreviewEnd={handlePreviewEnd}
+                  isInWatchlist={isInWatchlist}
+                  onToggleWatchlist={toggleWatchlist}
                 />
               ))}
             </section>
@@ -1467,6 +1549,8 @@ export default function FuuCine_Root() {
             }}
             onPreview={setAmbientImage}
             onPreviewEnd={handlePreviewEnd}
+            isInWatchlist={isInWatchlist}
+            onToggleWatchlist={toggleWatchlist}
           />
         ) : null}
       </AnimatePresence>
@@ -1477,6 +1561,8 @@ export default function FuuCine_Root() {
             slug={detailsSelection.slug}
             morphId={detailsSelection.morphId}
             initialEpisodeUrl={detailsSelection.selectedEpisodeUrl}
+            isWatchlist={isInWatchlist(detailsSelection.slug)}
+            onToggleWatchlist={(movie) => toggleWatchlist(movie)}
             onClose={closeDetails}
             onPlay={(slug, episodeUrl) => {
               const returnTo = {
@@ -1512,6 +1598,32 @@ export default function FuuCine_Root() {
             initialUrl={playerSelection.episodeUrl}
             morphId={playerSelection.morphId}
             onClose={closePlayer}
+            onPlayHistory={(movie, episode) => addToHistory(movie, episode)}
+          />
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {watchlistDrawerOpen ? (
+          <WatchlistDrawer
+            isOpen={watchlistDrawerOpen}
+            activeTab={watchlistDrawerTab}
+            onTabChange={setWatchlistDrawerTab}
+            onClose={() => {
+              setWatchlistDrawerOpen(false);
+              restoreOpener();
+            }}
+            watchlist={watchlist}
+            history={history}
+            onSelectMovie={(slug) => {
+              openDetails({ slug, morphId: `drawer-${slug}` });
+            }}
+            onPlayMovie={(slug, episodeUrl) => {
+              openPlayer({ slug, episodeUrl, morphId: `drawer-${slug}` });
+            }}
+            onRemoveFromWatchlist={removeFromWatchlist}
+            onRemoveFromHistory={removeFromHistory}
+            onClearHistory={clearAllHistory}
           />
         ) : null}
       </AnimatePresence>
@@ -1666,11 +1778,15 @@ function AmbientLayer({ image }: { image: string }) {
 
 function Navigation({
   browseActive,
+  watchlistCount,
   onOpenSearch,
+  onOpenWatchlist,
   onOpenMenuSearch,
 }: {
   browseActive: boolean;
+  watchlistCount: number;
   onOpenSearch: () => void;
+  onOpenWatchlist: () => void;
   onOpenMenuSearch: () => void;
 }) {
   const [scrolled, setScrolled] = useState(false);
@@ -1790,6 +1906,19 @@ function Navigation({
           <ThemeToggle className="hidden sm:flex" />
           <button
             type="button"
+            onClick={onOpenWatchlist}
+            className="nav-icon-button relative inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            aria-label={`Danh sách của tôi (${watchlistCount} phim)`}
+          >
+            <Bookmark className="h-5 w-5" />
+            {watchlistCount > 0 ? (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00F0FF] px-1 text-[10px] font-extrabold text-[#030305] shadow-[0_0_8px_rgba(0,240,255,0.6)]">
+                {watchlistCount}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
             onClick={onOpenSearch}
             className="nav-icon-button inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:text-[#00F0FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
             aria-label="Mở tìm kiếm"
@@ -1835,6 +1964,24 @@ function Navigation({
                 {item.label}
               </a>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                closeMenu();
+                onOpenWatchlist();
+              }}
+              className="mt-1 flex min-h-11 w-full items-center justify-between rounded-md px-3 py-3 text-left text-sm font-semibold text-[#D4D4D8] transition-colors hover:bg-white/5 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            >
+              <span className="flex items-center gap-2">
+                <Bookmark className="h-4 w-4 text-[#00F0FF]" />
+                Danh sách của tôi
+              </span>
+              {watchlistCount > 0 ? (
+                <span className="rounded-full bg-[#00F0FF] px-2 py-0.5 text-xs font-bold text-[#030305]">
+                  {watchlistCount}
+                </span>
+              ) : null}
+            </button>
             <div className="mt-2 flex items-center justify-between rounded-md px-3 py-3 text-sm font-semibold text-[#D4D4D8]">
               <span>Giao diện</span>
               <ThemeToggle />
@@ -1874,6 +2021,8 @@ function HeroSection({
   onSelectFilm,
   onDetails,
   onPlay,
+  isWatchlist = false,
+  onToggleWatchlist,
 }: {
   film?: FilmSummary;
   films: FilmSummary[];
@@ -1890,6 +2039,8 @@ function HeroSection({
   onSelectFilm: (slug?: string) => void;
   onDetails: () => void;
   onPlay: () => void;
+  isWatchlist?: boolean;
+  onToggleWatchlist?: () => void;
 }) {
   const reduceMotion = useReducedMotion();
   const meta = metaParts(film);
@@ -2067,6 +2218,33 @@ function HeroSection({
                 <Info className="h-5 w-5" />
                 Chi tiết
               </button>
+              {onToggleWatchlist ? (
+                <button
+                  type="button"
+                  onClick={onToggleWatchlist}
+                  disabled={!film?.slug}
+                  className={cn(
+                    "glass-panel col-span-2 flex min-w-0 items-center justify-center gap-2 rounded-full px-4 py-4 font-display text-sm font-bold transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 sm:col-span-1 sm:px-6 sm:text-base",
+                    isWatchlist
+                      ? "border-[#FF0055]/60 bg-[#FF0055]/20 text-[#FF0055] shadow-[0_0_24px_rgba(255,0,85,0.3)] focus-visible:ring-[#FF0055]"
+                      : "text-white hover:border-white/30 hover:bg-white/10 focus-visible:ring-[#00F0FF]",
+                  )}
+                  aria-label={
+                    isWatchlist
+                      ? `Xóa ${filmTitle(film)} khỏi danh sách yêu thích`
+                      : `Lưu ${filmTitle(film)} vào danh sách yêu thích`
+                  }
+                  aria-pressed={isWatchlist}
+                >
+                  <Heart
+                    className={cn(
+                      "h-5 w-5 transition-transform",
+                      isWatchlist && "fill-current scale-110",
+                    )}
+                  />
+                  <span>{isWatchlist ? "Đã lưu" : "Lưu phim"}</span>
+                </button>
+              ) : null}
             </motion.div>
           </motion.div>
           </AnimatePresence>
@@ -2487,6 +2665,8 @@ function BrowseResults({
   onPreview,
   onPreviewEnd,
   onLoadingChange,
+  isInWatchlist,
+  onToggleWatchlist,
 }: {
   filters: BrowseFilters;
   onSelect: (slug: string, morphId?: string) => void;
@@ -2494,6 +2674,8 @@ function BrowseResults({
   onPreview: (image: string) => void;
   onPreviewEnd: () => void;
   onLoadingChange: (loading: boolean) => void;
+  isInWatchlist?: (slug?: string) => boolean;
+  onToggleWatchlist?: (film: FilmSummary) => void;
 }) {
   const [page, setPage] = useState(1);
   const resultKey = browseResultsKey(filters);
@@ -2589,6 +2771,8 @@ function BrowseResults({
               <MovieCard
                 film={film}
                 morphId={`browse-${resultKey}-${currentPage}-${index}-${film.slug ?? filmTitle(film)}`}
+                isWatchlist={Boolean(film.slug && isInWatchlist?.(film.slug))}
+                onToggleWatchlist={onToggleWatchlist ? () => onToggleWatchlist(film) : undefined}
                 onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
                 onPlay={(morphId) => film.slug && onPlay(film.slug, morphId)}
                 onPreview={() => onPreview(getPoster(film))}
@@ -2672,12 +2856,16 @@ function MovieRow({
   onPlay,
   onPreview,
   onPreviewEnd,
+  isInWatchlist,
+  onToggleWatchlist,
 }: {
   row: RowConfig;
   onSelect: (slug: string, morphId?: string) => void;
   onPlay: (slug: string, morphId?: string) => void;
   onPreview: (image: string) => void;
   onPreviewEnd: () => void;
+  isInWatchlist?: (slug?: string) => boolean;
+  onToggleWatchlist?: (film: FilmSummary) => void;
 }) {
   const { data, error, isLoading, isValidating, mutate } = useSWR<ApiListResponse>(
     fallbackKey(row.endpoints),
@@ -2896,6 +3084,8 @@ function MovieRow({
               key={film.slug ?? `${filmTitle(film)}-${index}`}
               film={film}
               morphId={`row-${row.id}-${index}-${film.slug ?? filmTitle(film)}`}
+              isWatchlist={Boolean(film.slug && isInWatchlist?.(film.slug))}
+              onToggleWatchlist={onToggleWatchlist ? () => onToggleWatchlist(film) : undefined}
               onSelect={(morphId) => film.slug && onSelect(film.slug, morphId)}
               onPlay={(morphId) => film.slug && onPlay(film.slug, morphId)}
               onPreview={() => onPreview(getPoster(film))}
@@ -2908,20 +3098,247 @@ function MovieRow({
   );
 }
 
+function SavedMoviesRail({
+  id,
+  title,
+  type,
+  items,
+  onSelect,
+  onPlay,
+  onRemove,
+  onViewAll,
+  onPreview,
+  onPreviewEnd,
+}: {
+  id: string;
+  title: string;
+  type: "watchlist" | "history";
+  items: (WatchlistItem | HistoryItem)[];
+  onSelect: (slug: string, morphId?: string) => void;
+  onPlay: (slug: string, episodeUrl?: string) => void;
+  onRemove: (slug: string) => void;
+  onViewAll: () => void;
+  onPreview: (image: string) => void;
+  onPreviewEnd: () => void;
+}) {
+  const railRef = useRef<HTMLDivElement>(null);
+  const [railState, setRailState] = useState({
+    hasOverflow: false,
+    canScrollPrevious: false,
+    canScrollNext: false,
+  });
+  const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const updateState = () => {
+      const maxScroll = Math.max(rail.scrollWidth - rail.clientWidth, 0);
+      const scrollLeft = Math.min(Math.max(rail.scrollLeft, 0), maxScroll);
+      setRailState({
+        hasOverflow: maxScroll > 8,
+        canScrollPrevious: scrollLeft > 8,
+        canScrollNext: maxScroll - scrollLeft > 8,
+      });
+    };
+
+    updateState();
+    rail.addEventListener("scroll", updateState, { passive: true });
+    window.addEventListener("resize", updateState, { passive: true });
+    return () => {
+      rail.removeEventListener("scroll", updateState);
+      window.removeEventListener("resize", updateState);
+    };
+  }, [items.length]);
+
+  const scrollRail = (direction: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail || !rail.clientWidth) return;
+    const distance = direction * Math.round(rail.clientWidth * 0.8);
+    rail.scrollBy({
+      left: distance,
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  };
+
+  if (!items.length) return null;
+
+  return (
+    <motion.section
+      id={id}
+      className="relative z-20 w-full py-5 pl-4 md:py-7 md:pl-12 xl:py-8 xl:pl-16"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+      aria-labelledby={`${id}-title`}
+    >
+      <div className="row-lane rounded-l-lg border border-r-0 border-white/[0.08] py-5 pl-4 shadow-[0_22px_60px_rgba(0,0,0,0.28)] md:py-6 md:pl-6">
+        <div className="mb-6 flex flex-col gap-3 pr-6 sm:flex-row sm:items-center sm:justify-between md:pr-16">
+          <div className="flex items-center gap-3 md:gap-4">
+            <span
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg border",
+                type === "history"
+                  ? "border-[#00F0FF]/30 bg-[#00F0FF]/10 text-[#00F0FF] shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+                  : "border-[#FF0055]/30 bg-[#FF0055]/10 text-[#FF0055] shadow-[0_0_15px_rgba(255,0,85,0.2)]",
+              )}
+            >
+              {type === "history" ? (
+                <Clock className="h-5 w-5" />
+              ) : (
+                <Heart className="h-5 w-5 fill-current" />
+              )}
+            </span>
+            <div className="flex items-baseline gap-2.5">
+              <h2
+                id={`${id}-title`}
+                className="font-display text-2xl font-bold tracking-[-0.015em] text-white md:text-3xl"
+              >
+                {title}
+              </h2>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-[#A1A1AA]">
+                {items.length}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onViewAll}
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-bold text-[#D4D4D8] transition-colors hover:border-[#00F0FF]/40 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+            >
+              Xem tất cả
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+
+            {railState.hasOverflow ? (
+              <div className="rail-transport-actions hidden sm:flex">
+                <button
+                  type="button"
+                  className="rail-transport-button focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                  onClick={() => scrollRail(-1)}
+                  disabled={!railState.canScrollPrevious}
+                  aria-label={`Cuộn ${title} sang trái`}
+                >
+                  <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="rail-transport-button focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                  onClick={() => scrollRail(1)}
+                  disabled={!railState.canScrollNext}
+                  aria-label={`Cuộn ${title} sang phải`}
+                >
+                  <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          ref={railRef}
+          id={`${id}-rail`}
+          className="hide-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-5 pr-6 pt-2 md:gap-6 md:pr-16"
+        >
+          {items.map((item, index) => {
+            const morphId = `saved-${id}-${index}-${item.slug}`;
+            const historyItem = type === "history" ? (item as HistoryItem) : null;
+            const poster = item.thumb_url || item.poster_url || PLACEHOLDER_IMAGE;
+
+            return (
+              <div key={item.slug} className="snap-start">
+                <article
+                  onPointerEnter={() => onPreview(poster)}
+                  onPointerLeave={onPreviewEnd}
+                  className="movie-card-spotlight group relative z-10 aspect-[2/3] w-[160px] shrink-0 rounded-lg bg-white/[0.035] p-px text-left hover:z-30 focus-within:z-30 md:w-[220px]"
+                >
+                  <img
+                    src={poster}
+                    alt={item.name}
+                    className="absolute inset-px h-[calc(100%-2px)] w-[calc(100%-2px)] rounded-lg object-cover shadow-lg shadow-black/40"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.src = PLACEHOLDER_IMAGE;
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item.slug, morphId)}
+                    className="absolute inset-0 z-[3] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                    aria-label={`Xem chi tiết ${item.name}`}
+                  />
+                  {item.quality ? (
+                    <div className="pointer-events-none absolute left-2 top-2 z-[4] rounded-md border border-black/25 bg-black/[0.45] px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+                      {item.quality}
+                    </div>
+                  ) : null}
+
+                  {historyItem?.episodeName ? (
+                    <div className="pointer-events-none absolute right-2 top-2 z-[4] rounded-md border border-[#00F0FF]/40 bg-[#0B0B10]/80 px-2 py-1 text-xs font-bold text-[#00F0FF] backdrop-blur">
+                      {historyItem.episodeName}
+                    </div>
+                  ) : null}
+
+                  <div className="movie-card-copy pointer-events-none absolute inset-x-px bottom-px z-[4] rounded-b-lg bg-gradient-to-t from-black via-black/[0.75] to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white md:text-[0.9375rem]">
+                      {item.name}
+                    </h3>
+                    <p className="mt-1 line-clamp-1 text-xs text-[#D4D4D8]">
+                      {historyItem?.serverName || item.year || "FuuCine"}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onPlay(item.slug, historyItem?.episodeUrl)}
+                    className="card-play-button absolute bottom-3 right-3 z-[5] inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#030305] shadow-lg shadow-black/30 transition-transform hover:scale-110 focus:outline-none focus-visible:scale-110 focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                    aria-label={`Xem tiếp ${item.name}`}
+                  >
+                    <Play className="ml-0.5 h-4 w-4 fill-current" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(item.slug);
+                    }}
+                    className="absolute bottom-3 left-3 z-[5] inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-[#A1A1AA] opacity-0 backdrop-blur-md transition-all hover:border-[#FF0055]/50 hover:bg-[#FF0055]/20 hover:text-[#FF0055] group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF0055]"
+                    aria-label={`Xóa ${item.name} khỏi ${type === "history" ? "lịch sử" : "yêu thích"}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </article>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </motion.section>
+  );
+}
+
 function MovieCard({
   film,
   morphId,
   isActive = false,
+  isWatchlist = false,
   onSelect,
   onPlay,
+  onToggleWatchlist,
   onPreview,
   onPreviewEnd,
 }: {
   film: FilmSummary;
   morphId?: string;
   isActive?: boolean;
+  isWatchlist?: boolean;
   onSelect: (morphId?: string) => void;
   onPlay: (morphId?: string) => void;
+  onToggleWatchlist?: () => void;
   onPreview: () => void;
   onPreviewEnd: () => void;
 }) {
@@ -3057,6 +3474,34 @@ function MovieCard({
         >
           <Play className="ml-0.5 h-4 w-4 fill-current" />
         </button>
+        {onToggleWatchlist ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleWatchlist();
+            }}
+            className={cn(
+              "card-watchlist-button absolute bottom-3 left-3 z-[5] inline-flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur-md transition-all hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2",
+              isWatchlist
+                ? "border-[#FF0055]/60 bg-[#FF0055]/30 text-[#FF0055] opacity-100 shadow-[0_0_15px_rgba(255,0,85,0.4)] focus-visible:ring-[#FF0055]"
+                : "border-white/20 bg-black/40 text-white/80 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:border-[#FF0055]/40 hover:text-[#FF0055] focus:opacity-100 focus-visible:ring-[#00F0FF]",
+            )}
+            aria-label={
+              isWatchlist
+                ? `Xóa ${filmTitle(film)} khỏi danh sách yêu thích`
+                : `Lưu ${filmTitle(film)} vào danh sách yêu thích`
+            }
+            aria-pressed={isWatchlist}
+          >
+            <Heart
+              className={cn(
+                "h-4 w-4 transition-transform",
+                isWatchlist && "fill-current scale-110",
+              )}
+            />
+          </button>
+        ) : null}
       </article>
     </div>
   );
@@ -3087,12 +3532,16 @@ function SearchOverlay({
   onPlay,
   onPreview,
   onPreviewEnd,
+  isInWatchlist,
+  onToggleWatchlist,
 }: {
   onClose: () => void;
   onSelect: (slug: string, morphId?: string) => void;
   onPlay: (slug: string, morphId?: string) => void;
   onPreview: (image: string) => void;
   onPreviewEnd: () => void;
+  isInWatchlist?: (slug?: string) => boolean;
+  onToggleWatchlist?: (film: FilmSummary) => void;
 }) {
   const [keyword, setKeyword] = useState("");
   const debouncedKeyword = useDebouncedValue(keyword.trim(), 350);
@@ -3275,6 +3724,8 @@ function SearchOverlay({
                     film={film}
                     morphId={morphId}
                     isActive={index === activeIndex}
+                    isWatchlist={Boolean(film.slug && isInWatchlist?.(film.slug))}
+                    onToggleWatchlist={onToggleWatchlist ? () => onToggleWatchlist(film) : undefined}
                     onSelect={(selectedMorphId) =>
                       film.slug && onSelect(film.slug, selectedMorphId)
                     }
@@ -3361,14 +3812,18 @@ function DetailsModal({
   slug,
   morphId,
   initialEpisodeUrl,
+  isWatchlist = false,
   onClose,
   onPlay,
+  onToggleWatchlist,
 }: {
   slug: string;
   morphId?: string;
   initialEpisodeUrl?: string;
+  isWatchlist?: boolean;
   onClose: () => void;
   onPlay: (slug: string, episodeUrl?: string) => void;
+  onToggleWatchlist?: (movie: FilmSummary) => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -3482,6 +3937,42 @@ function DetailsModal({
                     {part}
                   </span>
                 ))}
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => onPlay(slug, activeEpisodeUrl)}
+                  className="group flex min-w-0 items-center justify-center gap-2.5 rounded-full bg-white px-7 py-3.5 font-display text-sm font-bold text-[#030305] shadow-[0_0_28px_rgba(255,255,255,0.18)] transition-transform hover:scale-[1.03] active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF]"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#030305] text-white transition-colors group-hover:bg-[#00F0FF] group-hover:text-[#030305]">
+                    <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />
+                  </span>
+                  Xem phim ngay
+                </button>
+
+                {onToggleWatchlist && movie ? (
+                  <button
+                    type="button"
+                    onClick={() => onToggleWatchlist(movie)}
+                    className={cn(
+                      "flex min-w-0 items-center justify-center gap-2 rounded-full border px-5 py-3.5 font-display text-sm font-bold transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2",
+                      isWatchlist
+                        ? "border-[#FF0055]/50 bg-[#FF0055]/20 text-[#FF0055] shadow-[0_0_18px_rgba(255,0,85,0.3)] focus-visible:ring-[#FF0055]"
+                        : "border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10 focus-visible:ring-[#00F0FF]",
+                    )}
+                    aria-pressed={isWatchlist}
+                    aria-label={isWatchlist ? "Xóa khỏi danh sách yêu thích" : "Lưu vào danh sách yêu thích"}
+                  >
+                    <Heart
+                      className={cn(
+                        "h-4 w-4 transition-transform",
+                        isWatchlist && "fill-current scale-110",
+                      )}
+                    />
+                    <span>{isWatchlist ? "Đã lưu yêu thích" : "Lưu yêu thích"}</span>
+                  </button>
+                ) : null}
               </div>
 
               {description ? (
@@ -3608,11 +4099,28 @@ function PlayerModal({
   initialUrl,
   morphId,
   onClose,
+  onPlayHistory,
 }: {
   slug: string;
   initialUrl?: string;
   morphId?: string;
   onClose: (episodeUrl?: string) => void;
+  onPlayHistory?: (
+    movie: {
+      slug?: string;
+      name?: string;
+      original_name?: string;
+      poster_url?: string;
+      thumb_url?: string;
+      quality?: string;
+      year?: string | number;
+    },
+    episode?: {
+      name?: string;
+      url?: string;
+      serverName?: string;
+    },
+  ) => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -3636,6 +4144,29 @@ function PlayerModal({
   useEffect(() => {
     setSelectedUrl(initialUrl ?? null);
   }, [initialUrl, slug]);
+
+  useEffect(() => {
+    if (movie && embedUrl && onPlayHistory) {
+      onPlayHistory(
+        {
+          slug: movie.slug,
+          name: movie.name,
+          original_name: movie.original_name,
+          poster_url: getPoster(movie),
+          thumb_url: getThumb(movie),
+          quality: movie.quality,
+          year: movie.year,
+        },
+        activeEpisode
+          ? {
+              name: activeEpisode.name,
+              url: embedUrl,
+              serverName: activeEpisode.serverName,
+            }
+          : { url: embedUrl },
+      );
+    }
+  }, [movie, embedUrl, activeEpisode, onPlayHistory]);
 
   return (
     <motion.div
